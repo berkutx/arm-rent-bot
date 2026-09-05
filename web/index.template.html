@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="theme-color" content="#f7f8fa">
+  <title>Свои · аренда в Telegram</title>
+  <style>/*__CSS__*/</style>
+  <script>
+  // The standalone prototype makes no third-party requests. Load the SDK only inside Telegram.
+  if (/tgWebApp/.test(location.hash + location.search)) {
+    const sdk = document.createElement('script');
+    sdk.src = 'https://telegram.org/js/telegram-web-app.js';
+    sdk.onload = () => window.dispatchEvent(new Event('tg-ready'));
+    document.head.appendChild(sdk);
+  }
+  </script>
+</head>
+<body>
+  <div class="app" id="app">
+    <header id="header" class="app-header"></header>
+    <main id="main"></main>
+    <div id="dock" class="dock"></div>
+  </div>
+  <div id="modal-root"></div>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script id="seed-data" type="application/json">/*__SEED__*/</script>
+  <script>/*__CORE__*/</script>
+  <script>/*__APP__*/</script>
+</body>
+</html>

@@ -1,0 +1,760 @@
+/* Mobile client; works offline or with the API. */
+'use strict';
+const $ = s => document.querySelector(s);
+const C = window.RentCore;
+const seed = JSON.parse($('#seed-data').textContent);
+const paths = {
+  info:'M12 17v-5M12 8h.01M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0',
+  home:'M3 10l9-7 9 7v10H15v-7H9v7H3z',
+  search:'M21 21l-5-5M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0',
+  plus:'M12 5v14M5 12h14',
+  bell:'M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4',
+  back:'M19 12H5M10 7l-5 5 5 5', close:'M6 6l12 12M18 6L6 18',
+  photo:'M4 4h16v16H4zM4 16l5-5 4 4 3-3 4 4M16 8h.01',
+  check:'M5 12l4 4L19 6', down:'M6 9l6 6 6-6', right:'M9 5l7 7-7 7',
+  edit:'M16 3l5 5-12 12-6 1 1-6zM13 6l5 5',
+  trash:'M4 6h16M8 6V3h8v3M6 6l1 15h10l1-15M10 10v7M14 10v7',
+  eye:'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0',
+  phone:'M5 3h4l2 5-3 2c2 3 3 4 6 6l2-3 5 2v4c0 2-2 3-4 2C9 19 5 15 3 7 2 5 3 3 5 3z',
+  chat:'M21 11a9 9 0 0 1-9 9H3l2-5a9 9 0 1 1 16-4M8 10h8M8 14h5',
+  author:'M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0M4 21v-2a8 8 0 0 1 16 0v2',
+  send:'M22 2L9 15M22 2l-7 20-6-7-7-6z',
+};
+const icon = n => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${paths[n] || paths.home}"/></svg>`;
+const esc = v => String(v ?? '').replace(/[&<>"']/g, x => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[x]));
+const money = n => new Intl.NumberFormat('ru-RU').format(n);
+const sym = c => ({AMD:'֏',USD:'$'})[c] || c;
+const unit = p => p === 'month' ? 'мес.' : p === 'day' ? 'сутки' : 'период не указан';
+const STORE = 'svoi-final-v5';
+const DEMO_NOW = Date.parse('2026-09-05T11:00:00+04:00');
+const baseFilters = () => ({q:'',period:'month',currency:'AMD',city:'Ереван',district:'',kind:'',rooms:'',max:'',zero:true,owner:false,pets:false,contract:false,residence_registration:false,verified:false});
+let stored = {};
+try { stored = JSON.parse(localStorage.getItem(STORE) || '{}'); } catch {}
+const listValue = v => Array.isArray(v) ? v : [];
+let state = {
+  screen:'feed', adminTab:'review', phoneInferred:false, filters:{...baseFilters(),...(stored.filters || {})}, sort:stored.sort || 'new',
+  subs:listValue(stored.subs), own:listValue(stored.own).map(l=>{const next={...l,status:l.status==='stale'?'active':l.status};delete next.confirmed_at;delete next.expires_at;delete next.confirmation_by;return next;}),
+  text:stored.text || stored.draftText || '', photos:listValue(stored.photos), draft:null,
+  serverDemo:false,live:false, examplesMode:false, examples:[], catalogChosen:false, channelConfigured:false, related:[], user:null, bot:'', remote:[], queue:[], busy:false, error:'', booted:false,
+};
+let tg = null, sheetKind = '', sheetArg = '', restoreFocus = null, toastTimer;
+let lastScreen = 'feed', startHandled = false, storageWarningShown = false;
+const uid = () => window.crypto?.randomUUID?.().replaceAll('-','').slice(0,14) || Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+function persist() {
+  if (state.live) return;
+  try {
+    localStorage.setItem(STORE, JSON.stringify({filters:state.filters,sort:state.sort,
+      subs:state.subs,own:state.own,text:state.text,photos:state.photos}));
+  } catch { if (!storageWarningShown) { storageWarningShown=true; toast('В этом просмотре изменения сохраняются до закрытия.'); } }
+}
+function toast(text) {
+  clearTimeout(toastTimer); $('#toast').textContent = text;
+  toastTimer = setTimeout(() => { $('#toast').textContent = ''; }, 4000);
+}
+function all() {
+  if(state.examplesMode)return state.examples;
+  const records = (state.live || state.serverDemo) ? [...state.remote,...state.own] : [...seed,...state.own];
+  return [...new Map(records.map(l => [l.id,l])).values()];
+}
+const item = id => [...all(),...state.own,...state.remote,...state.related,...state.queue].find(l => l.id === id);
+function housing(l) {
+  if (l.subtype) return l.subtype;
+  if (l.kind === 'aparthotel') return 'Апарт-отель';
+  if (l.kind === 'room') return 'Комната';
+  if (l.kind === 'house') return l.rooms ? `Дом · ${l.rooms} комнат` : 'Дом';
+  return l.rooms === 0 ? 'Студия' : l.rooms ? `${l.rooms} ${l.rooms === 1 ? 'комната' : l.rooms < 5 ? 'комнаты' : 'комнат'}` : 'Квартира';
+}
+function priceHTML(l, filters=state.filters) {
+  const p = C.offer(l,filters) || l.prices?.[0];
+  return p ? `${p.amount_max?'от ':''}${money(p.amount)} ${esc(sym(p.currency))} <small>/ ${unit(p.period)}</small>` : 'Укажите цену';
+}
+const shortDate = d => d ? new Date(d.slice(0,10)+'T12:00:00').toLocaleDateString('ru-RU',{day:'numeric',month:'short'}) : '';
+const niceStatus = l => ({active:'Актуально · в ленте',review:'На модерации',rented:'Сдано · неактуально',rejected:'Не опубликовано',banned:'Заблокировано'})[l.status] || l.status;
+const displayStatus = l => l.status;
+function exactDate(l) {
+  const ms=C.createdMs(l);
+  return Number.isFinite(ms)?new Date(ms).toLocaleString('ru-RU',{timeZone:'Asia/Yerevan',day:'numeric',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'})+' · Ереван':'';
+}
+function ageHTML(l) {
+  const age=C.publicationAge(l,l.sample?DEMO_NOW:Date.now());
+  return `<div class="publication-age" data-age="${age.bucket}"><time ${age.timestamp!==null?`datetime="${new Date(age.timestamp).toISOString()}"`:''} title="${esc(exactDate(l))}" aria-label="${esc(exactDate(l)?'Опубликовано '+exactDate(l):age.label)}">${esc(age.label)}</time></div>`;
+}
+function safePhoto(p) {
+  const url = typeof p === 'string' ? p : p?.url;
+  return typeof url === 'string' && (/^data:image\/(jpeg|png|webp);base64,/.test(url) || /^\/media\/[a-f0-9]{32}\.jpg$/.test(url)) ? url : '';
+}
+function filtered() {
+  const records = all().filter(l => displayStatus(l)==='active' && C.matches(l,state.filters));
+  return records.sort((a,b) => state.sort === 'price' ? C.offer(a,state.filters).amount-C.offer(b,state.filters).amount || C.newestFirst(a,b) : C.newestFirst(a,b));
+}
+function filterKey(f) { return JSON.stringify(Object.keys(baseFilters()).map(k => [k, f[k] ?? baseFilters()[k]])); }
+function currentSubscription() { return state.subs.find(s => filterKey(s.filters) === filterKey(state.filters)); }
+function housingFilterLabel(f) { return f.kind === 'room' ? 'Комната' : f.kind === 'house' ? 'Дом' : f.rooms === '0' ? 'Студия' : f.rooms ? `${f.rooms} комн.` : 'Комнаты'; }
+function filterSummary(f) {
+  return [f.district || f.city || 'Все районы', housingFilterLabel(f)==='Комнаты' ? '' : housingFilterLabel(f),
+    f.max ? `до ${money(f.max)} ${sym(f.currency)}` : sym(f.currency), f.period === 'day' ? 'за сутки' : 'за месяц'].filter(Boolean).join(' · ');
+}
+function header() {
+  if (['add','review','admin','alerts'].includes(state.screen)) {
+    const title={admin:'Модерация',alerts:'Уведомления',add:'Новое объявление',review:'Новое объявление'}[state.screen];
+    return `<button class="icon-button" data-action="back" aria-label="Назад">${icon('back')}</button><div class="header-title">${title}</div>${state.screen==='add'&&state.own.length?`<button class="text-button" data-action="mine">Мои · ${state.own.length}</button>`:'<span class="header-side"></span>'}`;
+  }
+  return `<div class="brand"><div class="brand-icon">${icon('home')}</div><div><div class="brand-name">свои</div><div class="brand-caption">${esc(state.filters.city||'Армения')} · без комиссии</div></div></div><div class="row">${state.user?.is_admin?'<button class="text-button" data-action="open-admin">Админ</button>':''}${!state.live?'<button class="demo-label" data-action="about">демо</button>':''}<button class="icon-button" data-action="nav" data-id="alerts" aria-label="Мои уведомления">${icon('bell')}</button></div>`;
+}
+function dock() {
+  if (state.screen === 'add') return `<div class="dock-action"><button class="button" id="continue" data-action="prepare-listing" ${!state.text.trim()||state.busy?'disabled':''}>${state.busy?'Загружаем фото…':'Продолжить'}</button></div>`;
+  if (state.screen === 'review') return `<div class="dock-action"><button class="button" data-action="publish" id="publish" ${state.busy?'disabled':''}>${state.busy?'Публикуем…':state.live?'Опубликовать':'Опубликовать в демо'}</button></div>`;
+  return `<nav class="nav" aria-label="Основные разделы"><button data-action="nav" data-id="feed" class="${state.screen==='feed'?'active':''}" ${state.screen==='feed'?'aria-current="page"':''}>${icon('search')}<span>Лента</span></button><button data-action="mine" class="mine-nav">${icon('author')}<span>Мои</span></button><button class="add-nav" data-action="nav" data-id="add">${icon('plus')}Сдать</button></nav>`;
+}
+function render() {
+  $('#header').innerHTML = header();
+  $('#main').innerHTML = state.screen==='feed' ? feed() : state.screen==='alerts' ? alerts() : state.screen==='review' ? review() : state.screen==='admin' ? admin() : compose();
+  $('#dock').innerHTML = dock();
+  updateBackButton();
+  if (state.error) $('#main').insertAdjacentHTML('afterbegin',`<div class="error-note">${esc(state.error)}</div>`);
+}
+function navigate(screen, push=true) {
+  clearSheet(false); lastScreen=state.screen; state.screen=screen;
+  if (push) history.pushState({svoi:true,screen},'');
+  persist(); render(); window.scrollTo(0,0);
+}
+function feed() {
+  const f=state.filters, ls=filtered(), sub=currentSubscription();
+  const budget=f.max?`До ${Number(f.max)>=1000?money(Number(f.max)/1000)+' тыс.':money(f.max)}`:f.period==='day'?'За сутки':'Бюджет';
+  const liveEmpty=state.live&&!state.examplesMode&&!state.remote.length;
+  return `${state.live?`<div class="catalog-switch" aria-label="Каталог"><button data-action="show-live" aria-pressed="${!state.examplesMode}">Объявления · ${state.remote.length}</button><button data-action="show-examples" aria-pressed="${state.examplesMode}">Демопримеры · 39</button></div>`:''}${state.examplesMode?'<div class="demo-callout catalog-note"><strong>Демокаталог</strong><br>Вымышленные объявления для проверки интерфейса. Жильё не предлагается.</div>':''}<div class="filters" aria-label="Три фильтра"><button class="filter-chip ${f.max||f.period!=='month'||f.currency!=='AMD'?'selected':''}" data-action="budget"><span>${esc(budget)}</span>${icon('down')}</button><button class="filter-chip ${f.district||f.city!=='Ереван'?'selected':''}" data-action="district"><span>${esc(f.district||(f.city==='Ереван'?'Район':f.city||'Город'))}</span>${icon('down')}</button><button class="filter-chip ${f.rooms||f.kind?'selected':''}" data-action="rooms"><span>${esc(housingFilterLabel(f))}</span>${icon('down')}</button></div>
+    <div class="results-heading"><button class="sort-button" data-action="sort" aria-label="Сортировка">${ls.length} ${plural(ls.length,'вариант','варианта','вариантов')} · ${state.sort==='price'?'дешевле':'новые'} ${icon('down')}</button><button class="follow-button ${sub?.active?'on':''}" data-action="follow" aria-pressed="${!!sub?.active}" ${state.examplesMode?'disabled':''}>${icon(sub?.active?'check':'bell')}${sub?.active?'Уведомления вкл.':'Уведомлять'}</button></div>
+    <div class="refine-row"><span class="feed-note">${state.live&&!state.examplesMode?'Только без комиссии':'Срез 05.09.2026 · не живая лента'}</span><button class="text-button" data-action="conditions-filter">Условия${state.filters.contract||state.filters.residence_registration||state.filters.verified?' •':''}</button></div><div class="list">${ls.map(card).join('') || (liveEmpty?empty('Пока нет объявлений','Каталог только запущен. Можно посмотреть демопримеры или добавить своё объявление.','Посмотреть демопримеры','show-examples'):empty('Нет подходящих вариантов',state.examplesMode?'Среди примеров нет совпадений. Попробуйте другой город или бюджет.':'Попробуйте другой город или бюджет. Подписку на этот поиск можно сохранить.','Сбросить фильтры','reset-filters'))}</div>
+    ${!state.live||state.examplesMode?'<p class="source-note">39 учебных примеров. Реальных контактов и фотографий нет.</p>':''}`;
+}
+function plural(n,a,b,c) { return n%10===1&&n%100!==11?a:n%10>=2&&n%10<=4&&(n%100<12||n%100>14)?b:c; }
+function viewsHTML(l) {
+  const known=state.live&&!l.sample&&Number.isInteger(l.view_count);
+  const label=known?'Просмотры уникальных пользователей Telegram: '+l.view_count:'Просмотры в демо не считаются';
+  return `<span class="view-count" data-view-id="${esc(l.id)}" title="${esc(label)}" aria-label="${esc(label)}">${icon('eye')}${known?money(l.view_count):'—'}</span>`;
+}
+async function recordView(l) {
+  if(!state.live||!state.user||l.sample)return;
+  try {
+    const result=await api('/api/listings/'+encodeURIComponent(l.id)+'/view','POST',{});
+    for(const x of [...state.remote,...state.own,...state.related])if(x.id===l.id)x.view_count=result.view_count;
+    l.view_count=result.view_count;
+    document.querySelectorAll('[data-view-id]').forEach(el=>{if(el.dataset.viewId===l.id)el.outerHTML=viewsHTML(l);});
+  } catch { /* A failed analytics request must not prevent reading the listing. */ }
+}
+function card(l) {
+  const photo=safePhoto(l.photos?.[0]);
+  const hint=l.residence_registration==='yes'?'Регистрация возможна':l.residence_registration==='ask'?'Регистрация — по условиям':l.pets==='yes'?'Можно с питомцем':'';
+  const verified=['owner_verified','representative_verified'].includes(l.document_status);
+  return `<article class="listing" data-listing="${esc(l.id)}"><div class="listing-body">
+  <div class="card-top"><div class="card-metrics">${ageHTML(l)}${viewsHTML(l)}</div>${verified?'<span class="trust-badge">Сверен по документам</span>':l.role==='owner'?'<span class="claim-badge">От собственника*</span>':l.role==='agent'?'<span class="claim-badge">Риелтор · без комиссии</span>':''}</div>
+  <div class="card-content"><button class="square-photo" data-action="${l.sample?'source':'detail'}" data-id="${esc(l.id)}" aria-label="${l.sample?'Фото в исходном посте':'Открыть фотографии'}">${photo?`<img src="${esc(photo)}" alt="Фото жилья" loading="lazy">`:`${icon('photo')}<span>${l.photo_count||0} фото${l.sample?' в TG':''}</span>`}</button><button class="listing-main" data-action="detail" data-id="${esc(l.id)}"><div class="price">${priceHTML(l)}</div><div class="listing-title">${esc(housing(l))}${l.area?' · '+esc(l.area)+' м²':''}</div><div class="listing-address">${esc(l.address)}</div></button></div>
+  ${travelHTML(l)}${availabilityHTML(l)}${hint?`<p class="availability-note">${esc(hint)}</p>`:''}<div class="listing-bottom"><button class="listing-photo-link" data-action="detail" data-id="${esc(l.id)}">${esc(l.district||l.city)} ${icon('right')}</button><button class="contact-button" data-action="${l.sample?'source':'contact'}" data-id="${esc(l.id)}">${icon('send')}${l.sample?(l.source_url?'Исходный пост':'Учебный пример'):'Связаться'}</button></div></div></article>`;
+}
+function empty(title,text,button,action='nav',id='feed') {
+  return `<div class="empty">${icon('search')}<h3>${esc(title)}</h3><p>${esc(text)}</p>${button?`<button class="button secondary" data-action="${action}" data-id="${id}">${esc(button)}</button>`:''}</div>`;
+}
+function alerts() {
+  return `<p class="intro">Новый вариант по вашим условиям — сразу в Telegram.</p>
+    ${state.subs.length?`<div class="stack">${state.subs.map(s=>`<div class="subscription">${icon('bell')}<button class="grow" style="text-align:left;padding:0" data-action="open-search" data-id="${esc(s.id)}"><p>${esc(s.name)}</p><small>${s.active?(state.live?'Новые совпадения сразу':'Демо · бот не подключён'):'На паузе'}</small></button><button class="switch" role="switch" aria-checked="${!!s.active}" aria-label="Уведомлять: ${esc(s.name)}" data-action="toggle-sub" data-id="${esc(s.id)}"></button><button class="icon-button" data-action="delete-sub" data-id="${esc(s.id)}" aria-label="Удалить поиск">${icon('trash')}</button></div>`).join('')}</div>`:empty('Не пропустите новый вариант','Выберите условия в ленте и нажмите «Уведомлять».','К ленте')}`;
+}
+function compose() {
+  return `<section class="compose"><h1>Сдать без лишних шагов</h1><p class="intro">Добавьте описание и фото. Цену, адрес и тип жилья укажете на следующем экране.</p>
+    <div class="label-row"><label for="listing-text">Объявление</label><button class="text-button" data-action="example">Взять пример</button></div>
+    <textarea id="listing-text" placeholder="Сдаю двушку на Комитаса, 300 000 драм в месяц. Без комиссии…" maxlength="12000">${esc(state.text)}</textarea>
+    <input id="photo-upload" class="photos-input" type="file" accept="image/jpeg,image/png,image/webp" multiple aria-label="Фотографии жилья">
+    <button class="upload-button" data-action="upload" ${state.busy?'disabled':''}>${icon('photo')}<div><strong>${state.photos.length?'Добавить ещё фото':'Добавить фотографии'}</strong><span>Желательно · до 10 фото</span></div></button>
+    <div id="photo-previews">${photoPreviews()}</div>
+    <p class="note">Описание сохранится без изменений.<br>${state.live?'Связь с вами — через Telegram.':'Это демо. Публикации никуда не отправляются.'}</p></section>`;
+}
+function photoPreviews() {
+  return state.photos.length?`<div class="photos-row">${state.photos.map((p,i)=>`<div class="photo-preview"><img src="${esc(safePhoto(p))}" alt="Фото ${i+1}"><button data-action="remove-photo" data-id="${i}" aria-label="Удалить фото ${i+1}">${icon('close')}</button></div>`).join('')}</div>`:'';
+}
+function review() {
+  const d=state.draft;
+  if (!d) { state.screen='add'; return compose(); }
+  const p=d.prices?.[0];
+  return `<section class="preview"><h1>Данные объявления</h1><p class="intro">Укажите цену, адрес и тип жилья.<br>Описание останется как вы написали.</p>
+    <div class="summary-card">
+      <button class="edit-row" data-action="edit-price"><div><small>Цена</small><strong>${p?.amount?`${p.amount_max?'от ':''}${money(p.amount)} ${esc(sym(p.currency))} / ${unit(p.period)}`:'Укажите цену'}</strong></div>${icon('edit')}</button>
+      <button class="edit-row" data-action="edit-address"><div><small>Адрес</small><strong>${esc(d.address?[d.city,d.address].filter(Boolean).join(' · '):'Укажите улицу или район')}</strong></div>${icon('edit')}</button>
+      <button class="edit-row" data-action="edit-rooms"><div><small>Жильё</small><strong>${esc(d.kind?housing(d):'Выберите тип и комнаты')}</strong></div>${icon('edit')}</button>
+    </div>
+    ${availabilityFields(d)}
+    ${state.photos.length?photoPreviews():''}
+    <details><summary>Описание${icon('down')}</summary><p class="details-text">${esc(state.text)}</p></details>
+    <button class="contact-edit" data-action="edit-contact">${icon('send')} Связь: ${esc(d.phone||d.contact||'через Telegram')} ${icon('edit')}</button>
+    ${state.phoneInferred&&d.phone?'<p class="note phone-inferred">Телефон распознан из текста. Проверьте номер; его можно изменить или убрать.</p>':''}
+    <details class="optional-block"><summary>Условия и пожелания <small>необязательно</small>${icon('down')}</summary><div class="stack optional-inner">${optionalFields(d)}<p class="note">Не знаете — оставьте «Не указано». Регистрация проживания и регистрация договора — разные вещи.</p></div></details>
+    <button class="text-button" data-action="edit-text">Изменить текст и фото</button>
+    <p class="note">Публикуя, подтверждаете: предложение актуально, размещение согласовано, комиссии для арендатора нет.</p>
+    ${!state.live?'<p class="note">Появится только на этом устройстве.</p>':''}</section>`;
+}
+function showSheet(title, body, footer='', kind='', arg='', className='', push=true) {
+  const replacing=!!sheetKind;
+  if (!sheetKind) restoreFocus=document.activeElement;
+  sheetKind=kind||'generic'; sheetArg=arg;
+  $('#modal-root').innerHTML=`<div class="overlay" data-action="backdrop"><section class="sheet ${className}" role="dialog" aria-modal="true" aria-label="${esc(title)}" tabindex="-1"><header class="sheet-head"><h2>${esc(title)}</h2><button class="icon-button" data-action="close" aria-label="Закрыть">${icon('close')}</button></header><div class="sheet-body">${body}</div><footer class="sheet-footer">${footer}</footer></section></div>`;
+  $('#app').inert=true; document.body.style.overflow='hidden';
+  $('.sheet').focus({preventScroll:true}); updateBackButton();
+  if (push && !replacing) history.pushState({svoi:true,screen:state.screen,sheet:true},'');
+}
+function clearSheet(focus=true) {
+  $('#modal-root').innerHTML=''; sheetKind=''; sheetArg='';
+  $('#app').inert=false; document.body.style.overflow=''; updateBackButton();
+  if (focus && restoreFocus?.isConnected) restoreFocus.focus({preventScroll:true});
+}
+function closeSheet() {
+  clearSheet();
+  if (history.state?.sheet) history.back();
+}
+function back() {
+  if (sheetKind) return closeSheet();
+  if (history.state?.svoi && state.screen!=='feed' && history.length>1) { history.back(); return; }
+  if (state.screen==='review') return navigate('add',false);
+  navigate('feed',false);
+}
+window.addEventListener('popstate', e=> {
+  const hadSheet=!!sheetKind;
+  clearSheet();
+  if (!hadSheet) { state.screen=e.state?.screen||'feed'; render(); }
+});
+function selectOptions(options,current) {
+  return options.map(([v,t])=>`<option value="${esc(v)}" ${v===current?'selected':''}>${esc(t)}</option>`).join('');
+}
+function budgetSheet(edit=false) {
+  const p=edit?state.draft.prices[0]:{amount:state.filters.max,currency:state.filters.currency,period:state.filters.period};
+  const presets=p.currency==='USD'?[600,900,1200]:p.period==='day'?[15000,25000,35000]:[250000,350000,450000];
+  const body=`<form id="${edit?'edit-price-form':'budget-form'}" class="stack"><div class="field-row"><div><label for="price-period">Цена за</label><select name="period" id="price-period">${selectOptions([['month','Месяц'],['day','Сутки']],p.period)}</select></div><div><label for="price-currency">Валюта</label><select name="currency" id="price-currency">${selectOptions([['AMD','Драмы · ֏'],['USD','Доллары · $']],p.currency)}</select></div></div><div><label for="budget-input">${edit?'Стоимость':'Максимальная цена'}</label><input class="price-input" id="budget-input" name="amount" type="text" inputmode="numeric" pattern="[0-9 ]*" maxlength="11" placeholder="${edit?'Например, 300 000':'Без ограничения'}" value="${esc(p.amount||'')}" ${edit?'required':''}></div>${edit?'':`<div class="choices" id="budget-presets">${presets.map(n=>`<button class="choice" type="button" data-action="preset" data-id="${n}">${money(n)}</button>`).join('')}<button class="choice" type="button" data-action="preset" data-id="">Любая</button></div>`}</form>`;
+  showSheet(edit?'Цена аренды':'Бюджет',body,`<button class="button" form="${edit?'edit-price-form':'budget-form'}" type="submit">${edit?'Готово':'Показать варианты'}</button>`,edit?'edit-price':'budget');
+}
+function districtSheet() {
+  const current=state.filters.district, city=state.filters.city;
+  const row=(v,t,count)=>`<button class="choice-row ${city==='Ереван'&&current===v?'active':''}" data-action="select-district" data-id="${esc(v)}">${esc(t)}<span class="muted">${count??''}${city==='Ереван'&&current===v?icon('check'):''}</span></button>`;
+  const cities=[...new Set([...C.CITIES,...all().map(l=>l.city)])].filter(Boolean);
+  const districts=C.DISTRICTS.map(d=>[d.name,all().filter(l=>l.city==='Ереван'&&l.district===d.name&&l.status==='active').length]);
+  showSheet('Город и район',`<div class="stack"><div><label for="filter-city">Город</label><select id="filter-city">${selectOptions([['','Все города'],...cities.map(c=>[c,c])],city)}</select></div>${city==='Ереван'?`<div class="choice-list">${row('','Все районы Еревана','')}${districts.slice(0,6).map(([d,n])=>row(d,d,n)).join('')}</div><details><summary>Ещё 6 районов ${icon('down')}</summary><div class="choice-list">${districts.slice(6).map(([d,n])=>row(d,d,n)).join('')}</div></details><p class="note">12 административных районов. Комитас и Чарбах — ориентиры, не отдельные районы.</p>`:'<p class="note">Поиск по всему выбранному городу. Районы доступны для Еревана.</p>'}</div>`,'','district');
+}
+const roomChoices=[['','Любое жильё'],['room','Комната'],['0','Студия'],['1','1 комната'],['2','2 комнаты'],['3','3 комнаты'],['4+','4 и больше'],['house','Дом'],['aparthotel','Апарт-отель']];
+function roomsSheet(edit=false) {
+  const d=edit?state.draft:state.filters, v=['room','house','aparthotel'].includes(d.kind)?d.kind:String(d.rooms??'');
+  const choices=edit?roomChoices.filter(([x])=>!['','4+'].includes(x)).concat([['4','4 комнаты'],['5','5 комнат'],['6','6 комнат']]):roomChoices;
+  showSheet(edit?'Какое жильё сдаёте?':'Комнаты',`<div class="choice-list">${choices.map(([k,t])=>`<button class="choice-row ${k===v?'active':''}" data-action="${edit?'set-rooms':'select-rooms'}" data-id="${esc(k)}">${esc(t)}${k===v?icon('check'):''}</button>`).join('')}</div>`,'',edit?'edit-rooms':'rooms');
+}
+function publicationLinksHTML(l) {
+  const post=l.sample?l.source_url:l.telegram_post_url;
+  const author=!l.sample&&(l.author_listings_available||(!state.live&&l.is_mine));
+  const row=(action,glyph,title,note,enabled)=>`<button class="publication-link" data-action="${action}" data-id="${esc(l.id)}" ${enabled?'':'disabled'}>${icon(glyph)}<span><strong>${title}</strong><small>${note}</small></span>${enabled?icon('right'):''}</button>`;
+  return `<section class="publication-links" aria-label="Объявление и автор"><h3>Объявление и автор</h3>
+    ${row('listing-post','send',l.sample?'Исходный пост':'Пост в канале',post?(l.sample?'Открыть объявление в Telegram':'Открыть публикацию в Telegram'):(state.channelConfigured?'Пост ещё не опубликован':'Канал ещё не подключён'),!!post)}
+    ${row('author-listings','author','Другие объявления автора',author?'Активные предложения в нашем каталоге':l.sample?'В демопримере автор не привязан':'Автор пока не привязан',!!author)}
+    ${l.role!=='agent'?row('phone-listings','phone','Объявления с этим телефоном',l.sample?'Демо · поиск по номеру недоступен':l.phone?'Совпадение номера, без риелторов':'Телефон не указан',!l.sample&&!!(l.phone_listings_available||(!state.live&&C.normalizePhone(l.phone)))):''}
+    ${row('listing-comments','chat','Комментарии и ответы','Пример · обсуждение ещё не подключено',false)}
+  </section>`;
+}
+async function authorListings(id,button) {
+  const l=item(id);if(!l||l.sample)return;
+  const origin=$('.sheet');button.disabled=true;button.setAttribute('aria-busy','true');
+  try {
+    const result=state.live?await api('/api/listings/'+encodeURIComponent(id)+'/author-listings'):{available:!!l.is_mine,listings:state.own.filter(x=>x.id!==id&&!x.sample&&x.status==='active')};
+    if(!origin?.isConnected)return;
+    if(!result.available)return toast('Автор этого объявления пока не привязан.');
+    state.related=result.listings;
+    const rows=result.listings.map(x=>`<button class="author-listing-row" data-action="detail" data-id="${esc(x.id)}"><span><strong>${priceHTML(x,{})}</strong><span>${esc(housing(x))} · ${esc(x.city)}</span><small>${esc(x.address)}</small></span>${icon('right')}</button>`).join('');
+    showSheet('Другие объявления автора',`<p class="note">Активные предложения того же автора в нашем каталоге. Текущее объявление не показано.</p>${rows?`<div class="author-listings">${rows}</div>`:'<div class="author-empty"><h3>Других объявлений пока нет</h3><p class="note">Здесь появятся новые предложения этого автора.</p></div>'}`,`<button class="button secondary" data-action="detail" data-id="${esc(id)}">К объявлению</button>`,'author-listings',id);
+  } finally { if(button.isConnected){button.disabled=false;button.removeAttribute('aria-busy');} }
+}
+async function phoneListings(id,button) {
+  const l=item(id);if(!l||l.sample||l.role==='agent')return;
+  const origin=$('.sheet');button.disabled=true;
+  try {
+    const result=state.live?await api('/api/listings/'+encodeURIComponent(id)+'/phone-listings'):{available:!!C.normalizePhone(l.phone),listings:all().filter(x=>x.id!==id&&!x.sample&&x.status==='active'&&x.role!=='agent'&&C.normalizePhone(x.phone)===C.normalizePhone(l.phone))};
+    if(!origin?.isConnected)return;
+    if(!result.available)return toast('Поиск по этому номеру недоступен.');
+    state.related=result.listings;
+    const rows=result.listings.map(x=>`<button class="author-listing-row" data-action="detail" data-id="${esc(x.id)}"><span><strong>${priceHTML(x,{})}</strong><span>${esc(housing(x))} · ${esc(x.city)}</span><small>${esc(x.address)}</small></span>${icon('right')}</button>`).join('');
+    showSheet('С этим телефоном',`<p class="note">Активные объявления с таким же номером, без риелторов. Совпадение телефона не подтверждает личность или право собственности.</p>${rows?`<div class="phone-listings">${rows}</div>`:'<div class="author-empty"><h3>Других объявлений не найдено</h3></div>'}`,`<button class="button secondary" data-action="detail" data-id="${esc(id)}">К объявлению</button>`,'phone-listings',id);
+  } finally {if(button.isConnected)button.disabled=false;}
+}
+async function detail(id) {
+  if(state.live&&!item(id)?.sample) {
+    try { const latest=await api('/api/listings/'+encodeURIComponent(id)); state.remote=state.remote.filter(x=>x.id!==id); state.remote.push(latest); }
+    catch(e) { return toast(e.message); }
+  }
+  const l=item(id); if (!l) return toast('Объявление больше недоступно.');
+  const photos=(l.photos||[]).map(safePhoto).filter(Boolean);
+  const media=photos.length?`<div class="detail-photo-row">${photos.map((u,i)=>`<img src="${esc(u)}" alt="Фото ${i+1}: ${esc(l.address)}">`).join('')}</div>`:l.sample&&l.source_url?`<button class="photo-source" data-action="source" data-id="${esc(l.id)}">${icon('photo')}<div><strong>${l.photo_count||0} фото в Telegram</strong><small>Открыть исходный пост</small></div>${icon('right')}</button>`:'';
+  const description=l.description||'Автор пока не добавил описание.';
+  showSheet(housing(l),`${media}<div class="card-metrics">${ageHTML(l)}${viewsHTML(l)}</div><div class="price">${priceHTML(l)}</div><p class="meta">${esc([l.city,l.address,l.district].filter(Boolean).join(' · '))}</p>${l.area||l.floor?`<p class="meta">${[l.area?esc(l.area)+' м²':'',l.floor?'Этаж '+esc(l.floor):''].filter(Boolean).join(' · ')}</p>`:''}${travelHTML(l)}${publicationLinksHTML(l)}${conditionsHTML(l)}${trustHTML(l)}<details open><summary>Описание${icon('down')}</summary><div class="detail-description details-text">${esc(description)}</div></details>${l.editorial_notes?.length?`<details><summary>Что уточнено при импорте ${icon('down')}</summary><p class="note">${l.editorial_notes.map(esc).join('<br>')}</p></details>`:''}${displayStatus(l)!=='active'?`<div class="error-note">${esc(niceStatus(l))}. Объявление скрыто из ленты.</div>`:''}${l.sample?'<p class="note">Учебный пример. Жильё не предлагается.</p>':''}<p class="note">${esc(exactDate(l)?'Опубликовано '+exactDate(l):'Дата публикации не указана')}</p>${state.user?.is_admin&&!l.sample?`<button class="button secondary danger" data-action="ban" data-id="${esc(l.id)}">Заблокировать с причиной</button>`:''}${!l.sample?`<button class="text-button" data-action="report" data-id="${esc(l.id)}">Пожаловаться</button>`:''}`,
+    `<button class="button" data-action="${l.sample?'source':'contact'}" data-id="${esc(l.id)}" ${displayStatus(l)!=='active'||(l.sample&&!l.source_url)?'disabled':''}>${icon('send')}${l.sample?(l.source_url?'Исходный пост':'Учебный пример'):'Связаться'}</button>`,'detail',id,'detail-sheet');
+  void recordView(l);
+}
+function mineSheet() {
+  showSheet('Мои объявления',state.own.map(l=>`<article class="my-row" data-mine-id="${esc(l.id)}"><h3>${esc(l.city)} · ${esc(l.address)}</h3><div class="card-metrics">${ageHTML(l)}${viewsHTML(l)}</div><p>${priceHTML(l,{})}</p><p class="listing-status status-${esc(l.status)}">${esc(niceStatus(l))}</p>${l.ban_reason||l.review_reason?`<div class="moderation-reason"><strong>${l.status==='banned'?'Причина блокировки':'Комментарий модератора'}</strong><p>${esc(l.ban_reason||l.review_reason)}</p></div>`:''}${['active','rented'].includes(l.status)?`<button class="text-button" data-action="detail" data-id="${esc(l.id)}">Открыть карточку</button><button class="button secondary" data-action="status" data-id="${esc(l.id)}" data-status="${l.status==='active'?'rented':'active'}">${l.status==='active'?'Отметить «Сдано»':'Снова актуально'}</button>`:''}${['active','review'].includes(l.status)?`<button class="text-button" data-action="verify" data-id="${esc(l.id)}">${l.document_status==='pending'?'Документ на проверке':'Подтвердить собственность'}</button>`:''}</article>`).join('')||'<p class="note">Пока нет объявлений. Нажмите «Сдать», чтобы добавить жильё.</p>','','mine');
+}
+async function refreshAdmin() {
+  state.queue=await api(state.adminTab==='review'?'/api/admin/queue':'/api/admin/listings?status='+state.adminTab);
+}
+function admin() {
+  if (!state.live || !state.user?.is_admin) return empty('Доступ только админу','Модерация не входит в обычный интерфейс.','К ленте');
+  return `<h1>Объявления</h1><div class="admin-tabs">${[['review','Проверка'],['all','Все'],['banned','Баны']].map(([k,t])=>`<button class="choice ${state.adminTab===k?'active':''}" data-action="admin-tab" data-id="${k}" aria-pressed="${state.adminTab===k}">${t}</button>`).join('')}</div><div class="stack">${state.queue.map(l=>`<article class="my-row" data-admin-id="${esc(l.id)}"><h3>${esc(l.city)} · ${esc(l.address)}</h3><p>${priceHTML(l,{})}</p><p class="listing-status status-${esc(l.status)}">${esc(niceStatus(l))}</p>${l.ban_reason||l.review_reason?`<div class="moderation-reason">${esc(l.ban_reason||l.review_reason)}</div>`:''}<details><summary>Описание ${icon('down')}</summary><p class="details-text">${esc(l.description)}</p></details>${l.document_status==='pending'?`<button class="button secondary" data-action="review-doc" data-id="${esc(l.id)}">Проверить документ</button>`:''}<div class="moderation-actions">${l.status==='banned'?`<button class="button secondary" data-action="unban" data-id="${esc(l.id)}">Снять блокировку</button>`:`${['review','rejected'].includes(l.status)?`<button class="button" data-action="approve" data-id="${esc(l.id)}">Одобрить</button>`:''}<button class="button secondary danger" data-action="ban" data-id="${esc(l.id)}">Заблокировать с причиной</button>`}</div></article>`).join('')||'<p class="note">Объявлений в этом разделе нет.</p>'}</div>`;
+}
+function banSheet(id) {
+  if(!state.user?.is_admin)return;
+  const l=item(id);if(!l)return;
+  showSheet('Блокировка объявления',`<form id="ban-form" data-listing="${esc(id)}" class="stack"><p>${esc(l.city)} · ${esc(l.address)}</p><div><label for="ban-reason">Причина — её увидит автор</label><textarea id="ban-reason" name="reason" minlength="3" maxlength="500" required placeholder="Например: в объявлении указана комиссия"></textarea></div><p class="note">Объявление исчезнет из ленты. Автор увидит его в «Моих» со статусом и причиной блокировки.</p></form>`,`<button class="button" type="submit" form="ban-form">Заблокировать</button>`,'ban',id);
+}
+async function api(path,method='GET',body) {
+  const headers={}; if (tg?.initData) headers['X-Telegram-Init-Data']=tg.initData;
+  if (body && !(body instanceof FormData)) headers['Content-Type']='application/json';
+  const controller=new AbortController(), timer=setTimeout(()=>controller.abort(),20000);
+  try {
+    const r=await fetch(path,{method,headers,body:body?(body instanceof FormData?body:JSON.stringify(body)):undefined,signal:controller.signal});
+    const data=await r.json(); if (!r.ok) throw Error(typeof data.detail==='string'?data.detail:'Проверьте данные и повторите.');
+    return data;
+  } catch(e) { if(e.name==='AbortError') throw Error('Нет ответа сервера. Попробуйте ещё раз.'); throw e; }
+  finally { clearTimeout(timer); }
+}
+function requireUser() {
+  if (!state.live || state.user) return true;
+  toast('Откройте приложение через своего Telegram-бота.'); return false;
+}
+async function refresh() {
+  if (!state.live) return;
+  const [ls, own, subscriptions]=await Promise.all([
+    api('/api/listings'), state.user?api('/api/mine'):Promise.resolve([]),
+    state.user?api('/api/subscriptions'):Promise.resolve([])
+  ]);
+  state.remote=ls; state.own=own; state.subs=subscriptions;
+}
+
+async function follow() {
+  if(state.examplesMode)return toast('Уведомления доступны для новых объявлений. Переключитесь на «Объявления».');
+  if (!requireUser()) return;
+  const existing=currentSubscription();
+  if (existing) { await toggleSub(existing.id); render(); return; }
+  if (state.live && tg?.requestWriteAccess && !tg.initDataUnsafe?.user?.allows_write_to_pm) {
+    const allowed=await new Promise(resolve=>tg.requestWriteAccess(resolve));
+    if (!allowed) return toast('Без разрешения бот не сможет присылать объявления.');
+  }
+  const s={id:'q'+uid(),name:filterSummary(state.filters),frequency:'instant',active:true,filters:{...state.filters}};
+  if (state.live) s.id=(await api('/api/subscriptions','POST',s)).id;
+  state.subs.push(s); persist(); render();
+  toast(state.live?'Будем присылать новые совпадения.':'Поиск сохранён на устройстве. Бот пока не подключён.');
+}
+async function toggleSub(id) {
+  const s=state.subs.find(s=>s.id===id); if (!s) return;
+  const active=!s.active;
+  if (state.live) await api('/api/subscriptions/'+id,'PATCH',{active});
+  s.active=active; persist(); render();
+}
+function prepareListing() {
+  if (state.busy || !state.text.trim()) return;
+  if(!state.draft)state.draft={address:'',city:state.filters.city||'Ереван',district:'',kind:'',rooms:null,
+    prices:[{amount:0,currency:'AMD',period:'month'}],available:null,available_until:null,
+    commission:0,contact:'',phone:C.phoneFromText(state.text),contact_mode:'relay',role:'unknown',pets:'unknown',deposit:null,
+    contract:'unknown',residence_registration:'unknown',lease_registration:'unknown',wishes:''};
+  state.phoneInferred=!!state.draft.phone&&state.draft.phone===C.phoneFromText(state.text);
+  navigate('review');
+}
+async function publish() {
+  if (state.busy || !requireUser()) return;
+  const d=state.draft; if (!d) return;
+
+  if (!d.prices[0].amount) { budgetSheet(true); return; }
+  if (!d.address || d.address.trim().length<3) { editAddress(); return; }
+  if(d.kind!=='house'&&!/\d/.test(d.address)){editAddress();toast('Добавьте номер дома. Номер квартиры не нужен.');return;}
+  if(!d.kind||(d.kind==='apartment'&&d.rooms==null)){roomsSheet(true);return;}
+  const dateError=availabilityError(d);
+  if(dateError){toast(dateError);$('#available-until').focus();return;}
+  state.busy=true; $('#dock').innerHTML=dock();
+  try {
+    const payload={...d,description:state.text,photos:state.photos.map(p=>state.live?{id:p.id}:p),commission:0,contact:d.contact||(state.user?.username?'@'+state.user.username:''),phone:d.phone||'',contact_mode:d.contact_mode||'relay',photo_count:state.photos.length};
+    let l;
+    if (state.live) {
+      l=await api('/api/listings','POST',{listing:payload,private:{},consent:true}); await refresh();
+    } else {
+      // Never replace or automatically "verify" the imported examples.
+      const dup=all().some(x=>C.norm(x.address)===C.norm(payload.address)&&x.kind===payload.kind&&x.rooms===payload.rooms&&['active','review'].includes(x.status));
+      l={...payload,id:'d'+uid(),sample:false,is_mine:true,status:dup?'review':'active',created_at:new Date().toISOString(),review_reason:dup?'Похожее объявление уже есть':''};
+      state.own.push(l);
+    }
+    state.text=''; state.photos=[]; state.draft=null; state.busy=false; state.examplesMode=false;
+    state.filters={...baseFilters(),currency:l.prices[0].currency,period:l.prices[0].period,city:l.city};
+    persist(); navigate('feed');
+    showSheet(l.status==='review'?'Нужна проверка':'Объявление добавлено',`<div class="stack"><p>${esc(l.address)}</p><p class="price">${priceHTML(l)}</p><p class="muted">${l.status==='review'?'Нашлось похожее объявление. '+(state.live?'Админ получит задачу.':'В демо заявка остаётся на проверке.'):(state.live?'Объявление добавлено. Отправка в канал — по настройкам бота.':'Добавлено только на этом устройстве. В Telegram ничего не отправлено.')}</p></div>`,`<div class="stack"><button class="button secondary" data-action="verify" data-id="${esc(l.id)}">Подтвердить собственность</button><button class="button" data-action="close">Готово</button></div>`,'success');
+  } finally { state.busy=false; $('#dock').innerHTML=dock(); }
+}
+function editAddress() {
+  const d=state.draft, known=C.CITIES.includes(d.city||'Ереван');
+  showSheet('Адрес',`<form id="address-form" class="stack"><div><label for="address-input">Улица и номер дома</label><input id="address-input" name="address" value="${esc(d.address)}" autocomplete="street-address" maxlength="180" minlength="3" required></div><div><label for="city-input">Город</label><select id="city-input" name="city">${selectOptions([...C.CITIES.map(c=>[c,c]),['other','Другой город / населённый пункт']],known?d.city||'Ереван':'other')}</select></div><div id="custom-city-row" ${known?'hidden':''}><label for="custom-city">Название населённого пункта</label><input id="custom-city" name="custom_city" value="${known?'':esc(d.city)}" maxlength="80" ${known?'':'required'}></div><div id="district-row"><label for="district-input">Район Еревана</label><select id="district-input" name="district">${selectOptions([['','Уточняется'],...C.DISTRICTS.map(x=>[x.name,x.name])],d.district||'')}</select></div><details class="travel-fields"><summary>Время в пути <small>необязательно</small>${icon('down')}</summary><div class="stack optional-inner"><div id="metro-row"><label for="metro-minutes">До метро пешком, мин</label><input id="metro-minutes" name="metro_walk_minutes" type="number" inputmode="numeric" min="1" max="180" step="1" placeholder="Например, 10" value="${esc(d.metro_walk_minutes??'')}"></div><div><label for="center-minutes">До центра этого города на машине, мин</label><input id="center-minutes" name="center_drive_minutes" type="number" inputmode="numeric" min="1" max="360" step="1" placeholder="Например, 15" value="${esc(d.center_drive_minutes??'')}"></div><p class="note">Примерно, по вашей оценке. Время на машине зависит от пробок. Не знаете — оставьте пустым.</p></div></details><p class="note">Номер квартиры не нужен. Для частного дома номер дома можно не указывать. Район Еревана можно оставить «Уточняется».</p></form>`,`<button class="button" type="submit" form="address-form">Готово</button>`,'edit-address');
+  updateAddressCity();
+}
+function updateAddressCity(clear=false) {
+  const city=$('#city-input').value, yerevan=city==='Ереван', other=city==='other';
+  if(clear){$('#district-input').value='';$('#metro-minutes').value='';$('#center-minutes').value='';}
+  $('#custom-city-row').hidden=!other; $('#custom-city').required=other;
+  $('#district-row').hidden=!yerevan; $('#district-input').disabled=!yerevan;
+  $('#metro-row').hidden=!yerevan; $('#metro-minutes').disabled=!yerevan;
+}
+function travelHTML(l) {
+  const parts=[];
+  if(l.city==='Ереван'&&l.metro_walk_minutes)parts.push(`≈ ${l.metro_walk_minutes} мин пешком до метро`);
+  if(l.center_drive_minutes)parts.push(`≈ ${l.center_drive_minutes} мин на машине до центра города`);
+  return parts.length?`<p class="travel-note">${parts.map(esc).join('<br>')}<small>Оценка автора · на машине зависит от пробок</small></p>`:'';
+}
+async function showExamples() {
+  if(!state.examples.length)state.examples=await api('/api/examples');
+  state.examplesMode=true; state.catalogChosen=true; render();
+}
+async function compressed(file) {
+  const url=URL.createObjectURL(file);
+  try {
+    const image=new Image(); image.src=url; await image.decode();
+    const scale=Math.min(1,1200/Math.max(image.width,image.height));
+    const canvas=document.createElement('canvas'); canvas.width=Math.round(image.width*scale); canvas.height=Math.round(image.height*scale);
+    canvas.getContext('2d').drawImage(image,0,0,canvas.width,canvas.height);
+    return canvas.toDataURL('image/jpeg',.76);
+  } finally { URL.revokeObjectURL(url); }
+}
+async function upload(files) {
+  if (state.busy || !requireUser()) return;
+  const selected=[...files]; if (!selected.length) return;
+  if (selected.length+state.photos.length>10) toast('Оставим первые 10 фотографий.');
+  state.busy=true; $('#dock').innerHTML=dock();
+  try {
+    for (const file of selected.slice(0,10-state.photos.length)) {
+      if (!['image/jpeg','image/png','image/webp'].includes(file.type)) throw Error('Подойдут JPG, PNG или WebP.');
+      if (file.size>10_000_000) throw Error('Одна фотография может быть не больше 10 МБ.');
+      if (state.live) { const fd=new FormData(); fd.append('file',file); state.photos.push(await api('/api/photos','POST',fd)); }
+      else state.photos.push({id:uid(),url:await compressed(file)});
+    }
+  } finally {
+    state.busy=false; persist(); if($('#photo-previews')) $('#photo-previews').innerHTML=photoPreviews(); if($('#photo-upload')) $('#photo-upload').value=''; $('#dock').innerHTML=dock();
+  }
+}
+function safeOpen(url) {
+  try {
+    const u=new URL(url); if (!['http:','https:'].includes(u.protocol)) return;
+    if (u.hostname==='t.me' && tg?.openTelegramLink) tg.openTelegramLink(u.href);
+    else if (tg?.openLink) tg.openLink(u.href);
+    else window.open(u.href,'_blank','noopener,noreferrer');
+  } catch { toast('Ссылка недоступна.'); }
+}
+async function action(a,id,el) {
+  if (a==='show-examples')return showExamples();
+  if (a==='show-live'){state.examplesMode=false;state.catalogChosen=true;render();return;}
+  if (a==='about') return aboutSheet();
+  if (a==='conditions-filter') return filterConditions();
+  if (a==='edit-contact') return editContact();
+  if (a==='verify') return verificationSheet(id);
+  if (a==='review-doc') return reviewDocument(id);
+  if (a==='open-admin'){if(!state.user?.is_admin)return;await refreshAdmin();navigate('admin');return;}
+  if (a==='official') {safeOpen('https://www.e-cadastre.am/en/application/docview');return;}
+  if (a==='telegram-contact'){const l=item(id);safeOpen('https://t.me/'+l.contact.slice(1));return;}
+  if (a==='relay-contact'){if(!requireUser())return;if(!state.live)return toast('Демо: сообщение автору не отправлено.');await api('/api/listings/'+id+'/contact','POST',{});toast('Автору передан запрос на связь.');return;}
+  if (a==='nav') { navigate(id); return; }
+  if (a==='back') { back(); return; }
+  if (a==='close'||a==='backdrop') { closeSheet(); return; }
+  if (a==='budget') return budgetSheet();
+  if (a==='district') return districtSheet();
+  if (a==='rooms') return roomsSheet();
+  if (a==='preset') { $('#budget-input').value=id; return; }
+  if (a==='select-city') {state.filters.city=id;state.filters.district='';closeSheet();persist();render();return;}
+  if (a==='select-district') { state.filters.city='Ереван';state.filters.district=id; closeSheet(); persist(); render(); return; }
+  if (a==='select-rooms'||a==='set-rooms') {
+    const d=a==='set-rooms'?state.draft:state.filters;
+    d.kind=['room','house','aparthotel'].includes(id)?id:a==='set-rooms'?'apartment':'';
+    d.rooms=['room','house','aparthotel',''].includes(id)?a==='set-rooms'?null:'':a==='set-rooms'?Number(id):id;
+    closeSheet(); persist(); render(); return;
+  }
+  if (a==='sort') return showSheet('Порядок объявлений',`<div class="choice-list">${[['new','Сначала новые'],['price','Сначала дешевле']].map(([v,t])=>`<button class="choice-row ${state.sort===v?'active':''}" data-action="select-sort" data-id="${v}">${t}${state.sort===v?icon('check'):''}</button>`).join('')}</div>`,'','sort');
+  if (a==='select-sort') { state.sort=id; closeSheet(); persist(); render(); return; }
+  if (a==='reset-filters') { state.filters=baseFilters(); persist(); render(); return; }
+  if (a==='detail') return detail(id);
+  if (a==='phone-listings') return phoneListings(id,el);
+  if (a==='ban') return banSheet(id);
+  if (a==='admin-tab'){state.adminTab=id;await refreshAdmin();render();return;}
+  if (a==='unban'){el.disabled=true;try{await api('/api/admin/'+id+'/unban','POST',{});await refreshAdmin();await refresh();render();toast('Блокировка снята.');}finally{if(el.isConnected)el.disabled=false;}return;}
+  if (a==='author-listings') return authorListings(id,el);
+  if (a==='listing-post') {const l=item(id),url=l?.sample?l.source_url:l?.telegram_post_url;if(url)safeOpen(url);return;}
+  if (a==='source') { const l=item(id); if(l?.source_url) safeOpen(l.source_url); else toast('Учебный пример: реального объявления и контакта нет.'); return; }
+  if (a==='follow') return follow();
+  if (a==='toggle-sub') return toggleSub(id);
+  if (a==='delete-sub') {
+    if (state.live) await api('/api/subscriptions/'+id,'DELETE');
+    state.subs=state.subs.filter(s=>s.id!==id); persist(); render(); return;
+  }
+  if (a==='open-search') { state.filters={...baseFilters(),...state.subs.find(s=>s.id===id).filters}; navigate('feed'); return; }
+  if (a==='example') { state.text=seed.find(l=>l.source_id===234835)?.description||'Сдаю 2-комнатную на Нар Дос 75, 300000 драм в месяц, без комиссии.'; $('#listing-text').value=state.text; $('#dock').innerHTML=dock(); persist(); return; }
+  if (a==='prepare-listing') return prepareListing();
+  if (a==='edit-text') return navigate('add');
+  if (a==='edit-price') return budgetSheet(true);
+  if (a==='edit-address') return editAddress();
+  if (a==='edit-rooms') return roomsSheet(true);
+  if (a==='upload') { $('#photo-upload').click(); return; }
+  if (a==='remove-photo') { state.photos.splice(Number(id),1); persist(); if($('#photo-previews')) $('#photo-previews').innerHTML=photoPreviews(); else render(); return; }
+  if (a==='publish') return publish();
+  if (a==='mine'){if(!requireUser())return;if(state.live)await refresh();return mineSheet();}
+  if (a==='status') {
+    const l=state.own.find(x=>x.id===id); if(!l)return;
+    const status=el.dataset.status==='active'?'active':'rented';
+    if(state.live) { await api('/api/listings/'+id+'/status','POST',{status}); await refresh(); }
+    else l.status=status;
+    persist(); render(); mineSheet(); return;
+  }
+  if (a==='contact') return contactSheet(id);
+  if (a==='report') { if(state.live&&requireUser()) { await api('/api/listings/'+id+'/report','POST',{}); toast('Жалоба отправлена админу.'); } else toast('Демо: жалоба не отправлена.'); return; }
+  if (a==='approve'||a==='reject') { if(!state.live||!state.user?.is_admin)return; await api('/api/admin/'+id+'/decision','POST',{decision:a==='approve'?'approve':'reject'}); await refreshAdmin(); await refresh(); render(); }
+}
+document.addEventListener('click',e=>{
+  const b=e.target.closest('[data-action]'); if(!b || b.disabled)return;
+  if (b.dataset.action==='backdrop' && e.target!==b) return;
+  e.preventDefault(); Promise.resolve(action(b.dataset.action,b.dataset.id||'',b)).catch(e=>toast(e.message||'Не удалось выполнить действие.'));
+});
+document.addEventListener('input',e=>{
+  if(e.target.dataset.field&&state.draft)state.draft[e.target.dataset.field]=e.target.type==='date'?(e.target.value||null):e.target.value;
+  if(['available-from','available-until'].includes(e.target.id))updateAvailability();
+  if(e.target.id==='listing-text') { state.text=e.target.value; persist(); const b=$('#continue'); if(b)b.disabled=!state.text.trim()||state.busy; }
+});
+document.addEventListener('change',e=>{
+  if(e.target.id==='city-input')updateAddressCity(true);
+  if(e.target.id==='filter-city'){state.filters.city=e.target.value;state.filters.district='';closeSheet();persist();render();}
+  if(e.target.dataset.field&&state.draft)state.draft[e.target.dataset.field]=e.target.type==='date'?(e.target.value||null):e.target.value;
+  if(['available-from','available-until'].includes(e.target.id))updateAvailability();
+  if(e.target.id==='photo-upload') upload(e.target.files).catch(e=>toast(e.message));
+  if(['price-currency','price-period'].includes(e.target.id)&&$('#budget-presets')) {
+    const usd=$('#price-currency').value==='USD', day=$('#price-period').value==='day';
+    const choices=usd?(day?[40,70,100]:[600,900,1200]):day?[15000,25000,35000]:[250000,350000,450000];
+    $('#budget-input').value='';
+    $('#budget-presets').innerHTML=choices.map(n=>`<button class="choice" type="button" data-action="preset" data-id="${n}">${money(n)}</button>`).join('')+'<button class="choice" type="button" data-action="preset" data-id="">Любая</button>';
+  }
+});
+document.addEventListener('submit',e=>{
+  e.preventDefault(); const x=Object.fromEntries(new FormData(e.target));
+  if(['verification-form','verification-decision','contact-form','filter-conditions','ban-form'].includes(e.target.id)){handleExtraForm(e.target,x).catch(err=>toast(err.message));return;}
+  if(e.target.id==='budget-form'||e.target.id==='edit-price-form') {
+    const amount=Number(String(x.amount).replace(/\s/g,''));
+    if (!Number.isFinite(amount)||amount<0||amount>1e9) return toast('Укажите корректную сумму.');
+    if(e.target.id==='budget-form') Object.assign(state.filters,{max:amount?String(amount):'',period:x.period,currency:x.currency});
+    else {
+      if(!amount)return toast('Цена должна быть больше нуля.');
+      state.draft.prices[0]={amount,period:x.period,currency:x.currency};
+    }
+    closeSheet(); persist(); render();
+  }
+  if(e.target.id==='address-form') {
+    const next=x.address.trim();
+    const city=(x.city==='other'?x.custom_city:x.city).trim();
+    if(!city)return toast('Укажите город или населённый пункт.');
+    const metro=x.metro_walk_minutes?Number(x.metro_walk_minutes):null, center=x.center_drive_minutes?Number(x.center_drive_minutes):null;
+    if((metro!==null&&(!Number.isInteger(metro)||metro<1||metro>180))||(center!==null&&(!Number.isInteger(center)||center<1||center>360)))return toast('Укажите время в целых минутах.');
+    Object.assign(state.draft,{address:next,city,district:city==='Ереван'?x.district:'',metro_walk_minutes:city==='Ереван'?metro:null,center_drive_minutes:center});
+    persist(); closeSheet(); render();
+  }
+});
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape') { e.preventDefault(); back(); }
+  if(e.key==='Tab'&&sheetKind) {
+    const items=[...$('.sheet').querySelectorAll('button,input,select,textarea,a[href]')].filter(x=>!x.disabled&&x.offsetParent!==null);
+    if(!items.length)return;
+    if(e.shiftKey&&document.activeElement===items[0]) { e.preventDefault(); items.at(-1).focus(); }
+    else if(!e.shiftKey&&document.activeElement===items.at(-1)) { e.preventDefault(); items[0].focus(); }
+  }
+});
+function updateBackButton() {
+  try { if(sheetKind||!['feed'].includes(state.screen)) tg?.BackButton?.show(); else tg?.BackButton?.hide(); } catch {}
+}
+function applyTheme() {
+  const dark=tg?.initData?tg.colorScheme==='dark':matchMedia('(prefers-color-scheme: dark)').matches;
+  document.documentElement.dataset.theme=dark?'dark':'light';
+  const params=tg?.themeParams;
+  if(tg?.initData&&params) for(const [css,key] of [['--bg','secondary_bg_color'],['--surface','bg_color'],['--ink','text_color'],['--muted','hint_color'],['--accent','button_color'],['--on-accent','button_text_color']]) {
+    if(/^#[0-9a-f]{6}$/i.test(params[key]||'')) document.documentElement.style.setProperty(css,params[key]);
+  }
+  try { const bg=getComputedStyle(document.documentElement).getPropertyValue('--bg').trim(); tg?.setHeaderColor(bg); tg?.setBackgroundColor(bg); } catch {}
+}
+function initTelegram() {
+  const app=window.Telegram?.WebApp; if(!app || tg===app)return;
+  tg=app;
+  try { tg.ready(); tg.expand(); tg.BackButton.onClick(back); tg.onEvent('themeChanged',applyTheme); } catch {}
+  applyTheme(); updateBackButton();
+  if(state.booted&&tg.initData) connect().catch(e=>{state.error=e.message;render();});
+}
+window.addEventListener('tg-ready',initTelegram);
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change',applyTheme);
+let normalHeight=window.innerHeight, viewportWidth=innerWidth;
+function syncKeyboard() {
+  const v=window.visualViewport; if(!v)return;
+  if(viewportWidth!==innerWidth) { normalHeight=innerHeight; viewportWidth=innerWidth; }
+  normalHeight=Math.max(normalHeight,innerHeight);
+  const keyboard=normalHeight-v.height>160 && /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName);
+  document.documentElement.style.setProperty('--keyboard',Math.max(0,innerHeight-v.height-v.offsetTop)+'px');
+  document.documentElement.dataset.keyboard=String(keyboard);
+}
+window.visualViewport?.addEventListener('resize',syncKeyboard);
+window.visualViewport?.addEventListener('scroll',syncKeyboard);
+document.addEventListener('focusout',()=>setTimeout(syncKeyboard,100));
+async function startRoute() {
+  if(startHandled)return;
+  const p=tg?.initDataUnsafe?.start_param||new URLSearchParams(location.search).get('start')||new URLSearchParams(location.search).get('tgWebAppStartParam')||'';
+  if(!p)return;
+  if(state.live && !state.user && ['draft','admin'].includes(p))return;
+  startHandled=true;
+  if(p.startsWith('l_')) { detail(p.slice(2)); return; }
+  if(['add','draft'].includes(p)) {
+    if(state.live&&state.user&&p==='draft') { const d=await api('/api/draft'); state.text=d.text||''; state.photos=d.photos||[]; }
+    navigate('add',false);
+  }
+  if(p==='admin' && state.live && state.user?.is_admin) { state.queue=await api('/api/admin/queue'); navigate('admin',false); }
+}
+let connecting=false;
+async function connect() {
+  if(connecting)return; connecting=true;
+  try {
+    const config=await api('/api/config');
+    state.channelConfigured=!!config.channel_configured;
+    if(config.live) {
+      state.live=true; state.bot=config.bot_username; state.own=[]; state.subs=[];
+      if(tg?.initData) state.user=await api('/api/me');
+      await refresh();
+      if(!state.catalogChosen&&!state.remote.length)await showExamples();
+    } else {state.live=false;state.serverDemo=true;state.remote=await api('/api/listings');}
+    render(); await startRoute();
+  } finally { connecting=false; }
+}
+(async()=>{
+  history.replaceState({svoi:true,screen:'feed'},''); initTelegram(); applyTheme(); render();
+  if(['http:','https:'].includes(location.protocol)) {
+    try { await connect(); }
+    catch(e) { if(tg?.initData||state.live) { state.live=true; state.error='Не удалось подключиться к серверу. '+e.message; render(); } }
+  }
+  state.booted=true; await startRoute();
+})();
+
+let refreshPending=false;
+async function refreshVisible() {
+  if(document.hidden || !state.booted || refreshPending) return;
+  refreshPending=true;
+  try { if(state.live) { await refresh(); state.error=''; } }
+  catch { state.error='Нет связи. Новые объявления пока не загружаются.'; }
+  finally {
+    if(state.screen==='feed' && !sheetKind) {
+      const y=window.scrollY; render(); window.scrollTo(0,y);
+    }
+    if(sheetKind==='mine')mineSheet();
+    if(sheetKind==='detail') {
+      const l=item(sheetArg);
+      const count=document.querySelector('.sheet .view-count');if(l&&count)count.outerHTML=viewsHTML(l);
+      const age=document.querySelector('.sheet .publication-age');
+      if(l && age) age.outerHTML=ageHTML(l);
+      const action=document.querySelector('.sheet-footer [data-action="contact"]');
+      if(l && displayStatus(l)!=='active' && action) { action.disabled=true; action.textContent=niceStatus(l); }
+    }
+    refreshPending=false;
+  }
+}
+setInterval(refreshVisible,30000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshVisible();});
+
+function rentalDate(value) {
+  return new Date(value+'T12:00:00').toLocaleDateString('ru-RU',{day:'numeric',month:'short',year:'numeric'});
+}
+function availabilityHTML(l) {
+  const text=[l.available?'с '+rentalDate(l.available):'',l.available_until?'до '+rentalDate(l.available_until):''].filter(Boolean).join(' · ');
+  return text?`<p class="availability-note">Сдаётся ${esc(text)}</p>`:'';
+}
+function availabilityError(d) {
+  for(const date of [d.available,d.available_until])if(date){
+    const stamp=Date.parse(date+'T12:00:00Z');
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(stamp)||new Date(stamp).toISOString().slice(0,10)!==date)return 'Укажите полную дату: день, месяц и год.';
+  }
+  return d.available&&d.available_until&&d.available_until<d.available?'Дата окончания должна быть не раньше начала.':'';
+}
+function availabilityFields(d) {
+  return `<section class="availability-fields" aria-label="Даты аренды"><div class="label-row"><strong>Когда сдаётся</strong><span class="muted">необязательно</span></div><div class="field-row"><div><label for="available-from">С какого числа</label><input id="available-from" type="date" data-field="available" value="${esc(d.available||'')}" max="9999-12-31"></div><div><label for="available-until">До какого числа</label><input id="available-until" type="date" data-field="available_until" value="${esc(d.available_until||'')}" min="${esc(d.available||'')}" max="9999-12-31"></div></div><p class="note">Укажите точные даты, если знаете. Можно оставить одно или оба поля пустыми.</p><p id="availability-error" class="error-note" role="alert" ${availabilityError(d)?'':'hidden'}>${esc(availabilityError(d))}</p></section>`;
+}
+function updateAvailability() {
+  const error=availabilityError(state.draft);
+  $('#available-until').min=state.draft.available||'';
+  $('#availability-error').textContent=error;$('#availability-error').hidden=!error;
+}
+function optionalFields(d) {
+  const opts=[['unknown','Не указано'],['yes','Да'],['ask','По договорённости'],['no','Нет']];
+  return `<div><label for="opt-contract">Готовы подписать письменный договор?</label><select id="opt-contract" data-field="contract">${selectOptions(opts,d.contract||'unknown')}</select></div><div><label for="opt-registration">Поможете с регистрацией по месту проживания?</label><select id="opt-registration" data-field="residence_registration">${selectOptions(opts,d.residence_registration||'unknown')}</select></div><details><summary>Регистрация права аренды / договора ${icon('down')}</summary><label for="opt-lease">Готовы к оформлению через кадастр?</label><select id="opt-lease" data-field="lease_registration">${selectOptions(opts,d.lease_registration||'unknown')}</select><p class="note">Не равно прописке жильца или налоговому уведомлению.</p></details><div><label for="wishes">Важные условия и пожелания</label><textarea class="short-text" id="wishes" data-field="wishes" maxlength="1200" placeholder="Например, с котом можно; тишина после 23:00. Можно оставить в основном тексте.">${esc(d.wishes||'')}</textarea></div>`;
+}
+function conditionsHTML(l) {
+  const rows=[];
+  if(l.deposit!=null)rows.push(['Депозит',l.deposit===0?'Без депозита':money(l.deposit)+' '+sym(l.prices?.[0]?.currency||'AMD')]);
+  if(l.term)rows.push(['Срок',l.term]);
+  if(l.available)rows.push(['Сдаётся с',rentalDate(l.available)]);
+  if(l.available_until)rows.push(['Сдаётся до',rentalDate(l.available_until)]);
+  if(l.utilities)rows.push(['Коммунальные',l.utilities]);
+  if(l.contract==='yes')rows.push(['Договор','Автор готов подписать']);
+  if(['yes','ask'].includes(l.residence_registration))rows.push(['Регистрация проживания',l.residence_registration==='yes'?'Автор согласен':'Условия нужно обсудить']);
+  if(['yes','ask'].includes(l.lease_registration))rows.push(['Оформление через кадастр',l.lease_registration==='yes'?'Автор согласен':'Нужно обсудить']);
+  const extras=(l.prices||[]).length>1||(l.prices||[]).some(p=>p.amount_max||p.condition)?`<div class="rate-options">${(l.prices||[]).map(p=>`<p><strong>${money(p.amount)}${p.amount_max?'–'+money(p.amount_max):''} ${esc(sym(p.currency))} / ${unit(p.period)}</strong>${p.condition?'<br><span>'+esc(p.condition)+'</span>':''}</p>`).join('')}</div>`:'';
+  return `${extras}${rows.length?`<dl class="facts">${rows.map(([k,v])=>`<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join('')}</dl>`:''}${l.wishes?`<p class="details-text">${esc(l.wishes)}</p>`:''}`;
+}
+function trustHTML(l) {
+  const verified=['owner_verified','representative_verified'].includes(l.document_status);
+  const titles={owner_verified:'Собственник сверён',representative_verified:'Представитель сверён',document_checked:'Документ проверен',pending:'Документ на проверке',not_confirmed:'Проверка не подтверждена'};
+  const title=titles[l.document_status]||(l.role==='owner'?'Собственник — со слов автора':'Собственность не проверена');
+  const detail=verified?'Администратор сверил документ через официальный e-cadastre, сведения об объекте и личность заявителя. Это самая полная проверка в текущей версии, не гарантия сделки.':l.document_status==='document_checked'?'Администратор открыл документ на официальном e-cadastre и сверил объект. Личность заявителя отдельно не подтверждена.':'Официальный e-cadastre позволяет проверить подлинность и действительность свидетельства по номеру и паролю. Для проверки собственника дополнительно сверяется личность.';
+  return `<details class="trust-box"><summary>${icon(verified||l.document_status==='document_checked'?'check':'info')}<span>${title}</span>${icon('down')}</summary><p class="note">${detail}</p>${l.verification?.checked_on?`<p class="note">Дата сверки: ${esc(l.verification.checked_on)}</p>`:''}<button class="text-button" data-action="official">Официальный способ проверки ↗</button>${l.sample?'<p class="note">Учебный пример не проходит проверку.</p>':''}</details>`;
+}
+function aboutSheet() {
+  showSheet('О демо','<div class="stack"><p>39 вымышленных объявлений без реальных контактов и фотографий. Жильё не предлагается.</p><p>«От собственника» — заявление автора. Документ и личность сверяются отдельно.</p></div>','','about');
+}
+function filterConditions() {
+  const f=state.filters;
+  showSheet('Только когда это важно',`<form id="filter-conditions" class="stack">${[['contract','Готовы подписать договор'],['residence_registration','Возможна регистрация проживания'],['verified','Личность и право сверены']].map(([k,t])=>`<label class="check-row"><input type="checkbox" name="${k}" ${f[k]?'checked':''}><span>${t}</span></label>`).join('')}<p class="note">Регистрация по договорённости тоже попадает в поиск. Проверьте её условия и цену в карточке. Пустое поле не считается согласием.</p></form>`,`<button type="submit" form="filter-conditions" class="button">Показать варианты</button>`,'conditions-filter');
+}
+function editContact() {
+  const d=state.draft;if(!d)return;
+  showSheet('Как с вами связаться?',`<form id="contact-form" class="stack"><div><label for="publisher-role">Кто размещает</label><select id="publisher-role" name="role">${selectOptions([['unknown','Не указано'],['owner','Собственник'],['tenant','Съезжающий жилец'],['agent','Агент / риелтор · без комиссии']],d.role||'unknown')}</select></div><div><label for="tg-contact">Telegram</label><input id="tg-contact" name="contact" placeholder="@username или оставьте пустым" value="${esc(d.contact||(state.user?.username?'@'+state.user.username:''))}" maxlength="33" autocapitalize="off" spellcheck="false"></div><div><label for="phone-contact">Телефон — необязательно</label><input id="phone-contact" type="tel" inputmode="tel" name="phone" placeholder="+374 …" value="${esc(d.phone||'')}" maxlength="40"></div><p class="note">Автоопределение: полный номер +374 или +7. При нескольких номерах выбор остаётся за вами. Другие коды можно указать вручную.</p><div><label for="contact-mode">Предпочтительная связь</label><select id="contact-mode" name="contact_mode">${selectOptions([['telegram','Написать в Telegram'],['phone','Позвонить'],['relay','Запрос через бота']],d.contact_mode||'telegram')}</select></div><p class="note">Telegram достаточно для публикации. Телефон добавляет способ связи и может повысить доверие. Без номера меньше способов проверить контакт — это не признак обмана и не снижает позицию в ленте.</p><p class="note">Нет публичного @username? Бот передаст запрос автору без публикации телефона.</p></form>`,`<button class="button" type="submit" form="contact-form">Готово</button>`,'contact-edit');
+}
+async function contactSheet(id) {
+  let l=item(id);if(!l)return;
+  if(state.live){l=await api('/api/listings/'+encodeURIComponent(id));if(l.status!=='active')return toast('Объявление снято.');}
+  const phone=l.phone&&/^\+[1-9]\d{7,14}$/.test(l.phone)?l.phone:'';
+  const contact=l.contact&&/^@[A-Za-z0-9_]{5,32}$/.test(l.contact)?l.contact:'';
+  if(!phone&&!contact&&l.sample){safeOpen(l.source_url);return;}
+  showSheet('Связаться с автором',`<div class="stack"><p>${esc(l.address)}</p>${l.sample?'<p class="note">Контакт из архивного объявления. Для теста сообщения не отправляются автоматически. Доступность уточняйте у автора.</p>':''}${contact?`<button class="button" data-action="telegram-contact" data-id="${esc(id)}">Написать ${esc(contact)}</button>`:''}${phone?`<a class="button ${contact?'secondary':''}" href="tel:${esc(phone)}">Позвонить ${esc(phone)}</a>`:''}${!phone&&!contact?`<p class="note">Автор не публикует телефон и username. Отправим ему ваш запрос через бота.</p><button class="button" data-action="relay-contact" data-id="${esc(id)}">Передать запрос автору</button>`:''}${l.source_url?`<button class="button secondary" data-action="source" data-id="${esc(id)}">Исходный пост и фотографии ↗</button>`:''}</div>`,'','contact',id);
+}
+function verificationSheet(id) {
+  const l=item(id);if(!l?.is_mine||l.sample)return toast('Проверку запрашивает автор своего объявления.');
+  if(l.document_status==='pending')return toast('Документ уже ожидает администратора.');
+  showSheet('Подтвердить собственность',`<form id="verification-form" data-listing="${esc(id)}" class="stack" autocomplete="off"><p>Проверка через <strong>официальный e-cadastre</strong> даёт больше оснований доверять объявлению, чем слова «я собственник». Документ и личность сверяет администратор.</p><div><label for="applicant-name">Ваше имя как в документе</label><input id="applicant-name" name="applicant_name" minlength="3" maxlength="140" required autocomplete="off"></div><div><label for="document-number">Номер кадастрового документа</label><input id="document-number" name="document_number" minlength="4" maxlength="80" required autocomplete="off"></div><div><label for="document-password">Пароль этого документа</label><input id="document-password" name="document_password" type="password" minlength="4" maxlength="100" required autocomplete="new-password"></div><p class="note">Это не пароль от Telegram и не пароль от вашего аккаунта e-cadastre. Только пароль для просмотра выданного документа.</p><label class="check-row"><input name="consent" type="checkbox" required><span>Разрешаю администратору использовать реквизиты для проверки этого объявления.</span></label><p class="note">Реквизиты видит только администратор. Они шифруются на сервере и удаляются после решения или через 7 дней. В сообщениях Telegram их нет. Паспорт загружать не нужно.</p>${!state.live?'<div class="demo-callout">Демо: используйте только вымышленные значения. Настоящие документы здесь не проверяются.</div>':''}</form>`,`<button class="button" type="submit" form="verification-form">${state.live?'Отправить на проверку':'Проверить сценарий'}</button>`,'verification',id);
+}
+async function reviewDocument(id) {
+  if(!state.live||!state.user?.is_admin)return;
+  const x=await api('/api/admin/'+id+'/private');
+  if(!x.document_number)return toast('Реквизиты отсутствуют или удалены.');
+  const today=new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Yerevan'});
+  showSheet('Проверка администратором',`<form id="verification-decision" data-listing="${esc(id)}" class="stack"><p class="note">Откройте официальный сайт, введите реквизиты и сверьте результат. Автоматической проверки и обхода капчи нет.</p><div><label>Имя заявителя</label><input readonly value="${esc(x.applicant_name||'Не указано')}"></div><div><label>Номер документа</label><input readonly value="${esc(x.document_number)}"></div><div><label>Пароль просмотра</label><input readonly value="${esc(x.document_password)}" autocomplete="off"></div><button type="button" class="button secondary" data-action="official">Открыть официальный e-cadastre ↗</button>${[['document_valid','На официальном сайте документ подлинный и действительный'],['object_matches','Адрес и объект совпадают с объявлением'],['identity_matches','Личность заявителя сверена отдельно, не по Telegram-имени'],['rights_current','Сведения о праве актуальны на дату проверки'],['authority_checked','Для представителя: полномочия отдельно сверены']].map(([k,t])=>`<label class="check-row"><input name="${k}" type="checkbox"><span>${t}</span></label>`).join('')}<div><label for="checked-date">Дата сверки сведений</label><input id="checked-date" type="date" name="checked_on" value="${today}" required></div><div><label for="verification-result">Результат</label><select name="result" id="verification-result">${selectOptions([['document_checked','Документ и объект проверены'],['owner_verified','Собственник: документ + личность + право'],['representative_verified','Представитель: дополнительно полномочия'],['not_confirmed','Не подтверждено']],'document_checked')}</select></div><p class="note">Положительное решение удалит реквизиты. Публично останутся метод, дата и перечень выполненных проверок.</p></form>`,`<button class="button" type="submit" form="verification-decision">Сохранить результат</button>`,'review-doc',id);
+}
+async function handleExtraForm(form,x) {
+  if(form.id==='filter-conditions'){
+    for(const k of ['contract','residence_registration','verified'])state.filters[k]=x[k]==='on';closeSheet();persist();render();return;
+  }
+  if(form.id==='contact-form'){
+    x.contact=x.contact.trim();x.phone=x.phone.replace(/[ ()\-\u00a0]/g,'');
+    if(x.contact&&!/^@[A-Za-z0-9_]{5,32}$/.test(x.contact))return toast('Введите @username или оставьте пустым.');
+    if(x.phone&&!/^\+[1-9]\d{7,14}$/.test(x.phone))return toast('Введите телефон с кодом страны: +374…');
+    if(x.contact_mode==='phone'&&!x.phone)return toast('Укажите телефон или выберите Telegram.');
+    Object.assign(state.draft,x);state.phoneInferred=false;closeSheet();render();return;
+  }
+  const lid=form.dataset.listing,button=$(`button[form="${form.id}"]`);if(button)button.disabled=true;
+  try {
+    if(form.id==='ban-form'){
+      await api('/api/admin/'+lid+'/ban','POST',{reason:x.reason.trim()});form.reset();closeSheet();await refresh();await refreshAdmin();navigate('admin');toast('Объявление заблокировано. Причина видна автору.');
+    } else if(form.id==='verification-form'){
+      if(!state.live){form.reset();closeSheet();toast('Сценарий проверен. Реквизиты не сохранены; реальная проверка не проводилась.');return;}
+      await api('/api/listings/'+lid+'/verification','POST',{...x,consent:x.consent==='on'});form.reset();await refresh();closeSheet();toast('Реквизиты отправлены администратору.');
+    } else if(form.id==='verification-decision'){
+      for(const k of ['document_valid','object_matches','identity_matches','rights_current','authority_checked'])x[k]=x[k]==='on';
+      await api('/api/admin/'+lid+'/verification','POST',x);form.reset();closeSheet();await refreshAdmin();await refresh();render();toast('Результат сохранён. Реквизиты удалены.');
+    }
+  } finally {if(button?.isConnected)button.disabled=false;}
+}

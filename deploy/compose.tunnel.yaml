@@ -1,0 +1,23 @@
+# Temporary test HTTPS; uses an isolated network and no public host ports.
+# docker compose -f compose.yaml -f deploy/compose.tunnel.yaml up -d
+services:
+  tunnel:
+    image: cloudflare/cloudflared@sha256:6d91c121b803126f7a5344005d17a9324788fc09d305b6e2560ec6040a7ae283
+    command: tunnel --no-autoupdate --protocol http2 --url http://app:8000 --metrics 0.0.0.0:2000
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
+    mem_limit: 96m
+    mem_reservation: 24m
+    memswap_limit: 96m
+    cpus: 0.25
+    pids_limit: 64
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options:
+        max-size: "2m"
+        max-file: "2"

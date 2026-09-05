@@ -1,0 +1,24 @@
+[Unit]
+Description=Svoi Telegram Mini App (one process)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=svoi
+Group=svoi
+WorkingDirectory=/opt/svoi
+EnvironmentFile=/opt/svoi/.env
+Environment=PYTHONUTF8=1
+ExecStart=/opt/svoi/.venv/bin/python /opt/svoi/server.py
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/svoi/data
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
