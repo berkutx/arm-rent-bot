@@ -12,11 +12,11 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-Нужен доверенный HTTPS. LIVE=1 включает Telegram; LIVE=0 позволяет запускать API локально без poller. Данные — data/rent.sqlite3. Начальная база пустая.
+Нужен доверенный HTTPS. LIVE=1 включает Telegram; LIVE=0 позволяет запускать API локально без poller. Данные — data/rent.sqlite3. Карточки из архива Telegram загружаются отдельно от кода, с исходными датами и ссылками; повторной публикации нет.
 
 PUBLISH_CHAT_ID/PUBLISH_THREAD_ID — публикации без комиссии; PUBLISH_PAID_CHAT_ID/PUBLISH_PAID_THREAD_ID — агентские. Пустые значения отключают публикацию. Пока обсуждение не подключено, его кнопка недоступна.
 
-Один FastAPI-процесс, SQLite/WAL, 256 MiB RAM. Node, Redis и Postgres для запуска не нужны. Фото отправляются в чат бота; Telegram хранит их и готовит размеры. Сервер хранит file_id и передаёт фото без обработки, скрывая токен. Галерея — PhotoSwipe (MIT, web/vendor).
+Один FastAPI-процесс, SQLite/WAL, 256 MiB RAM. Node, Redis и Postgres для запуска не нужны. Фото отправляются в чат бота; Telegram хранит их и готовит размеры. Сервер хранит file_id и передаёт фото без обработки, скрывая токен. Фото публичных постов браузер загружает напрямую с Telegram CDN. Галерея — PhotoSwipe (MIT, web/vendor).
 
 ## Изменения и обслуживание
 

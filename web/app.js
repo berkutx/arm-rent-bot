@@ -119,7 +119,7 @@ function feed() {
 function plural(n,a,b,c) { return n%10===1&&n%100!==11?a:n%10>=2&&n%10<=4&&(n%100<12||n%100>14)?b:c; }
 function viewsHTML(l) {
   const known=Number.isInteger(l.view_count);
-  const label=known?'Просмотры уникальных пользователей Telegram: '+l.view_count:'Просмотры в демо не считаются';
+  const label=known?'Просмотры уникальных пользователей Telegram: '+l.view_count:'Просмотры пока недоступны';
   return `<span class="view-count" data-view-id="${esc(l.id)}" title="${esc(label)}" aria-label="${esc(label)}">${icon('eye')}${known?money(l.view_count):'—'}</span>`;
 }
 async function recordView(l) {

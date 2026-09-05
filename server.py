@@ -2,6 +2,7 @@
 from __future__ import annotations
 import asyncio, contextlib, hashlib, hmac, json, logging, os, re, secrets, sqlite3, time
 from contextlib import asynccontextmanager
+from html.parser import HTMLParser
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Literal
@@ -10,7 +11,7 @@ import httpx
 from cryptography.fernet import Fernet
 from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, RedirectResponse
 from pydantic import BaseModel, Field, ConfigDict
 
 ROOT=Path(__file__).resolve().parent
@@ -239,13 +240,14 @@ def telegram_post_url(post):
 
 def listing(r,mine=False):
     d=json.loads(r['payload'])
-    post=d.pop('_telegram_post',None)
+    source=d.pop('_source_post',None)
+    post=d.pop('_telegram_post',None) or source
     d.pop('_status_before_ban',None)
     d['view_count']=r['view_count']
     d['phone_listings_available']=bool(r['phone_key'] and d.get('role')!='agent')
     d['telegram_post_url']=telegram_post_url(post)
     d['telegram_discussion_url']=telegram_post_url(post) if isinstance(post,dict) and post.get('chat',{}).get('type')=='supergroup' and post.get('message_thread_id') else ''
-    d['author_listings_available']=bool(r['uid'] and r['uid']>0)
+    d['author_listings_available']=bool(r['uid'])
     for old_key in ('confirmed_at','expires_at','confirmation_by','source_author_id','moderator_note'):
         d.pop(old_key,None)
     d.update(id=r['id'],status=r['status'],created_at=stamp(r['created']),is_mine=mine,photo_count=d.get('photo_count') or len(d.get('photos',[])))
@@ -278,6 +280,7 @@ def matches(l,f):
 
 def active_effects(lid):
     r=getrow(lid);l=listing(r)
+    if json.loads(r['payload']).get('_source_post'):return
     enqueue('publish',{'id':lid},'publish:'+lid)
     with db() as c:subs=c.execute("SELECT * FROM subscriptions WHERE active=1 AND frequency='instant' AND created<=?",(time.time(),)).fetchall()
     for s in subs:
@@ -459,11 +462,49 @@ async def telegram_file_path(file_id):
     FILE_PATHS[file_id]=(path,time.monotonic()+3000)
     return path
 
+def public_photo_url(url):
+    return bool(re.fullmatch(r'https://cdn[0-9]+\.(?:telesco\.pe|cdn-telegram\.org)/file/[A-Za-z0-9_./?=&%-]+',url or ''))
+
+class TelegramAlbum(HTMLParser):
+    def __init__(self):
+        super().__init__();self.posts=set();self.photos={}
+    def handle_starttag(self,tag,attrs):
+        attrs=dict(attrs)
+        if attrs.get('data-post'):self.posts.add(attrs['data-post'])
+        if tag!='a' or 'tgme_widget_message_photo_wrap' not in attrs.get('class','').split():return
+        match=re.search(r"background-image:url\(['\"]([^'\"]+)['\"]\)",attrs.get('style',''))
+        if match and public_photo_url(match[1]):self.photos[attrs.get('href','').split('?')[0]]=match[1]
+
+async def source_photo_url(photo):
+    source=photo.get('source_post','');message=photo.get('source_message','')
+    if not re.fullmatch(r'https://t.me/[A-Za-z0-9_]{5,32}/[1-9][0-9]*',source):raise HTTPException(404)
+    if public_photo_url(photo.get('url')) and 0<=time.time()-photo.get('resolved_at',0)<3000:return photo['url']
+    key='source:'+source;cached=FILE_PATHS.get(key)
+    if cached and cached[1]>time.monotonic():photos=cached[0]
+    else:
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                async with client.stream('GET',source+'?embed=1') as response:
+                    response.raise_for_status();raw=bytearray()
+                    async for chunk in response.aiter_bytes():
+                        raw.extend(chunk)
+                        if len(raw)>1_000_000:raise ValueError()
+            album=TelegramAlbum();album.feed(raw.decode('utf-8'))
+            if source.removeprefix('https://t.me/') not in album.posts:raise ValueError()
+            photos=album.photos
+        except (httpx.HTTPError,ValueError):raise HTTPException(502,'Фото временно недоступно') from None
+        if len(FILE_PATHS)>=512:FILE_PATHS.pop(next(iter(FILE_PATHS)))
+        FILE_PATHS[key]=(photos,time.monotonic()+3000)
+    if message not in photos:raise HTTPException(404,'Фото отсутствует в исходном посте')
+    return photos[message]
+
 @app.get('/media/{filename}')
 async def media(filename:str):
     match=re.fullmatch(r'([a-f0-9]{32})(-thumb)?\.jpg',filename)
     if not match:raise HTTPException(404)
     photo=photo_sizes(match[1])['thumb' if match[2] else 'full']
+    if photo.get('source_post'):
+        return RedirectResponse(await source_photo_url(photo),status_code=302,headers={'Cache-Control':'public, max-age=300'})
     client=httpx.AsyncClient(timeout=30)
     try:
         for attempt in range(2):
@@ -734,6 +775,7 @@ async def process_job(j):
     kind=j['kind'];p=json.loads(j['payload']);uid=p.get('uid');lid=p.get('id')
     if lid:
         r=getrow(lid);l=listing(r)
+    if kind in ('publish','edit') and json.loads(r['payload']).get('_source_post'):return
     if kind=='publish':
         if not publication_target(l)[0] or r['channel_message'] or l['status']!='active':return
         sent,mode=await send_listing(l)
