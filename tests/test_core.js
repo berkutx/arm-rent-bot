@@ -31,3 +31,11 @@ console.log('City catalog assertions: passed');
 const phoneCases=JSON.parse(require('fs').readFileSync(require('path').join(__dirname,'phone_cases.json'),'utf8').replace(/^\uFEFF/,''));
 for(const [text,expected] of phoneCases)assert.equal(C.phoneFromText(text),expected,text);
 console.log('Conservative phone mask assertions: passed');
+
+const paid = {...seed[0], status:'active', role:'agent', commission:80000, commission_type:'fixed'};
+assert(C.matches(paid,{market:'paid'}));
+assert(!C.matches(paid,{market:'free'}));
+assert(!C.matches(paid,{}));
+assert(!C.matches({...paid,role:'owner'},{market:'paid'}));
+assert(!C.matches({...paid,commission:0},{market:'paid'}));
+console.log('Commission market assertions: passed');

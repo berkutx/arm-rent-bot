@@ -1,23 +1,23 @@
 [Unit]
-Description=Svoi Telegram Mini App (one process)
+Description=Armenia Rent Telegram Mini App
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=svoi
-Group=svoi
-WorkingDirectory=/opt/svoi
-EnvironmentFile=/opt/svoi/.env
+User=rent
+Group=rent
+WorkingDirectory=/opt/rent
+EnvironmentFile=/opt/rent/.env
 Environment=PYTHONUTF8=1
-ExecStart=/opt/svoi/.venv/bin/python /opt/svoi/server.py
+ExecStart=/opt/rent/.venv/bin/python /opt/rent/server.py
 Restart=on-failure
 RestartSec=5
 UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ReadWritePaths=/opt/svoi/data
+ReadWritePaths=/opt/rent/data
 ProtectHome=true
 
 [Install]

@@ -16,7 +16,7 @@ with sync_playwright() as p:
  # persistent browser storage is mocked because about:blank has no origin.
  page.evaluate("""() => { window.__testStorage={};Object.defineProperty(window,'localStorage',{configurable:true,value:{getItem:k=>window.__testStorage[k]||null,setItem:(k,v)=>{window.__testStorage[k]=String(v)},clear:()=>{window.__testStorage={}}}}); }""")
  page.set_content((R/'web/index.html').read_text(encoding='utf-8'));page.wait_for_timeout(200)
- assert page.locator('.listing').count()==30
+ assert page.locator('.listing').count()==24
  widths=[]
  for w in [320,360,390,430]:
   page.set_viewport_size({'width':w,'height':844})
@@ -119,7 +119,7 @@ with sync_playwright() as p:
  assert own[-1]['description']==source_description
  assert 'Сдаётся с' in page.locator('[data-listing="'+own[-1]['id']+'"]').inner_text()
  assert own[-1].get('document_status') not in ('owner_verified','document_checked')
- assert page.locator('.listing').count()==31
+ assert page.locator('.listing').count()==25
  # No scores, favorites or expiry controls.
  assert page.locator('[data-action=fav], [data-action=like], [data-action=renew]').count()==0
  assert not errors,errors
@@ -133,16 +133,16 @@ with sync_playwright() as p:
  def serve(route):
   from urllib.parse import urlparse
   path=urlparse(route.request.url).path;requests.append((route.request.method,path))
-  if route.request.url=='https://svoi.test/':return route.fulfill(content_type='text/html',body=live_html)
+  if route.request.url=='https://rent.test/':return route.fulfill(content_type='text/html',body=live_html)
   payload={'/api/config':{'live':True,'bot_username':'test_bot'},'/api/listings':live_records, '/api/examples':examples}
   for record in live_records:
    payload['/api/listings/'+record['id']]=record
    payload['/api/listings/'+record['id']+'/author-listings']={'available':True,'listings':author_records}
   if path in payload:return route.fulfill(content_type='application/json',body=json.dumps(payload[path]))
   route.abort()
- live_page.route('**/*',serve);live_page.goto('https://svoi.test/')
+ live_page.route('**/*',serve);live_page.goto('https://rent.test/')
  live_page.locator('.listing').first.wait_for()
- assert live_page.locator('.listing').count()==30
+ assert live_page.locator('.listing').count()==24
  assert 'Демокаталог' in live_page.locator('.catalog-note').inner_text()
  assert live_page.locator('[data-action=follow]').is_disabled()
  for w in [320,360,390,430]:
@@ -203,7 +203,7 @@ with sync_playwright() as p:
  live_page.screenshot(path=str(O/'publication-dark-390.png'))
  assert all(method=='GET' for method,path in requests)
  assert not errors,errors
- report={'result':'passed' ,'mobile_widths':widths,'initial_cards':30,'seed_records':39,'js_errors':errors,
+ report={'result':'passed' ,'mobile_widths':widths,'initial_cards':24,'seed_records':39,'js_errors':errors,
          'scenarios':['disabled channel and discussion placeholders','actual Telegram post link','same author listings across city filters','empty author catalog and return navigation','feed','12 districts','source detail','follow filter','city choices and custom city','Yerevan-only metro and district','author travel estimate persistence','live empty catalog and isolated demo examples','manual fields without description parsing','exact optional rental dates','date order validation','description preserved when fields change','three review fields','optional conditions','local publish','private form does not persist credentials','dark theme'],
          'scope':'Chromium mobile emulation of built HTML and intercepted live API responses; not real Android/iOS Telegram; backend separately tested with TestClient.'}
  report['scenarios']=list(dict.fromkeys(report['scenarios']))

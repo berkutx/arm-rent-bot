@@ -63,7 +63,7 @@ def test_registration_price_condition():
 def test_seed_no_false_verification_or_missing_provenance():
  ls=json.loads((s.ROOT/'seed.json').read_text(encoding='utf-8'))
  assert len(ls)==39
- assert all(l['sample'] and l['document_status']=='none' and l['commission']==0 for l in ls)
+ assert all(l['sample'] and l['document_status']=='none' and (l['commission']==0 or l['role']=='agent') for l in ls)
  assert all(l['provenance']=='synthetic' and not l.get('source_url') and not l.get('source_id') and not l.get('phone') and not l.get('contact') for l in ls)
  assert all(not l['photos'] for l in ls)
  assert len({l['id'] for l in ls})==39

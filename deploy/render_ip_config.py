@@ -20,7 +20,7 @@ def render(address:str,out:Path,port:int=18080):
 server {
     listen 80;
     server_name IP_ADDRESS;
-COMMON    location / { return 200 "Svoi ACME bootstrap ready\\n"; }
+COMMON    location / { return 200 "rent ACME bootstrap ready\\n"; }
 }
 '''.replace('IP_ADDRESS',str(ip)).replace('COMMON',common)
     https='''# Install only AFTER a publicly trusted (not staging) IP certificate exists.

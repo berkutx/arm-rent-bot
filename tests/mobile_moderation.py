@@ -10,8 +10,8 @@ from playwright.sync_api import sync_playwright,expect
 import server as s
 from test_server import signed,body
 O=R/'test-results';errors=[];requests=[]
-with tempfile.TemporaryDirectory(prefix='svoi-mobile-',ignore_cleanup_errors=True) as tmp:
- s.DATA=Path(tmp);s.DB=s.DATA/'db.sqlite3';s.LIVE=True;s.TOKEN='test-token';s.BOT='test_bot';s.PUBLIC_URL='https://svoi.test';s.ADMINS={99};s.CHAT='';s.setup()
+with tempfile.TemporaryDirectory(prefix='rent-mobile-',ignore_cleanup_errors=True) as tmp:
+ s.DATA=Path(tmp);s.DB=s.DATA/'db.sqlite3';s.LIVE=True;s.TOKEN='test-token';s.BOT='test_bot';s.PUBLIC_URL='https://rent.test';s.ADMINS={99};s.CHAT='';s.setup()
  # No TestClient lifespan: the actual Telegram poller and jobs are never started.
  client=TestClient(s.app)
  def create(uid,address,role='owner'):
@@ -27,12 +27,12 @@ with tempfile.TemporaryDirectory(prefix='svoi-mobile-',ignore_cleanup_errors=Tru
   page.add_init_script('window.Telegram={WebApp:'+json.dumps(init)+'};Object.assign(window.Telegram.WebApp,{ready(){},expand(){},onEvent(){},BackButton:{show(){},hide(){},onClick(){}}});')
   def route(req):
    url=urlparse(req.request.url);path=url.path+('?' +url.query if url.query else '')
-   if url.hostname!='svoi.test':return req.fulfill(content_type='application/javascript',body='')
+   if url.hostname!='rent.test':return req.fulfill(content_type='application/javascript',body='')
    method=req.request.method;requests.append((method,path))
    headers={k:v for k,v in req.request.headers.items() if k in ('x-telegram-init-data','content-type')}
    response=client.request(method,path,headers=headers,content=req.request.post_data)
    req.fulfill(status=response.status_code,content_type=response.headers.get('content-type','application/json'),body=response.content)
-  page.route('**/*',route);page.goto('https://svoi.test/');page.locator('.listing').first.wait_for()
+  page.route('**/*',route);page.goto('https://rent.test/');page.locator('.listing').first.wait_for()
   def actor(uid):
    init_data=signed(uid)['X-Telegram-Init-Data'] if uid else ''
    page.evaluate('async raw=>{tg.initData=raw;state.user=raw?await api("/api/me"):null;await refresh();navigate("feed",false);toast("");}',init_data)

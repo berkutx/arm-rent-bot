@@ -26,12 +26,14 @@ BOT=os.getenv('BOT_USERNAME','').lstrip('@')
 PUBLIC_URL=os.getenv('PUBLIC_URL','').rstrip('/')
 CHAT=os.getenv('PUBLISH_CHAT_ID','')
 THREAD=int(os.getenv('PUBLISH_THREAD_ID','0')) or None
+PAID_CHAT=os.getenv('PUBLISH_PAID_CHAT_ID','')
+PAID_THREAD=int(os.getenv('PUBLISH_PAID_THREAD_ID','0')) or None
 ADMINS={int(v) for v in os.getenv('ADMIN_IDS','').split(',') if v.strip().isdigit()}
 DATA=Path(os.getenv('DATA_DIR',str(ROOT/'data')))
-DB=DATA/('svoi.sqlite3' if LIVE else 'demo.sqlite3')
+DB=DATA/('rent.sqlite3' if LIVE else 'demo.sqlite3')
 CIPHER=None
 VIEW_SECRET=None
-log=logging.getLogger('svoi')
+log=logging.getLogger('rent')
 Image.MAX_IMAGE_PIXELS=25_000_000
 
 def db():
@@ -46,7 +48,7 @@ def setup():
     kp=DATA/'private.key'
     if not kp.exists():kp.write_bytes(Fernet.generate_key());os.chmod(kp,0o600)
     CIPHER=Fernet(kp.read_bytes())
-    VIEW_SECRET=hmac.new(kp.read_bytes(),b'svoi-unique-views-v1',hashlib.sha256).digest()
+    VIEW_SECRET=hmac.new(kp.read_bytes(),b'rent-unique-views-v1',hashlib.sha256).digest()
     with db() as c:
         c.execute('PRAGMA journal_mode=WAL')
         c.executescript('''
@@ -168,7 +170,10 @@ class ListingIn(BaseModel):
     area:float|None=Field(default=None,gt=0,le=5000)
     floor:str|None=Field(default=None,max_length=30)
     role:Literal['unknown','owner','tenant','agent']='unknown'
-    commission:int|None=Field(default=None,ge=0,le=100)
+    commission:int|None=Field(default=None,ge=0,le=1_000_000_000)
+    commission_type:Literal['percent','fixed']='percent'
+    commission_currency:Literal['AMD','USD']='AMD'
+    commission_basis:Literal['month','day']='month'
     pets:Literal['yes','no','ask','unknown']='unknown'
     deposit:int|None=Field(default=None,ge=0,le=1_000_000_000)
     available:str|None=Field(default=None,max_length=10)
@@ -201,7 +206,7 @@ class Filters(BaseModel):
     kind:Literal['','apartment','room','house','aparthotel']=''
     rooms:str=Field(default='',pattern=r'^(|0|1|2|3|4\+|4|5|6)$')
     max:str=Field(default='',pattern=r'^\d{0,10}$')
-    zero:bool=False
+    market:Literal['free','paid']='free'
     owner:bool=False
     pets:bool=False
     contract:bool=False
@@ -258,7 +263,9 @@ def matches(l,f):
     rooms=f.get('rooms','')
     if rooms=='4+' and (l.get('rooms') is None or l['rooms']<4):return False
     if rooms not in ('','4+') and str(l.get('rooms'))!=rooms:return False
-    if f.get('zero') and l.get('commission')!=0:return False
+    market=f.get('market','free')
+    if market=='free' and l.get('commission')!=0:return False
+    if market=='paid' and not (l.get('role')=='agent' and (l.get('commission') or 0)>0):return False
     if f.get('owner') and l.get('role')!='owner':return False
     if f.get('pets') and l.get('pets') not in ('yes','ask'):return False
     if f.get('contract') and l.get('contract')!='yes':return False
@@ -290,7 +297,7 @@ async def lifespan(app):
         for t in tasks:t.cancel()
         for t in tasks:
             with contextlib.suppress(asyncio.CancelledError):await t
-app=FastAPI(title='Свои — прототип',lifespan=lifespan,docs_url=None,redoc_url=None,openapi_url=None)
+app=FastAPI(title='Аренда в Армении — прототип',lifespan=lifespan,docs_url=None,redoc_url=None,openapi_url=None)
 
 @app.middleware('http')
 async def headers(req,call_next):
@@ -312,7 +319,7 @@ async def index():
     if LIVE:s=re.sub(r'(<script id="seed-data" type="application/json">).*?(</script>)',r'\1[]\2',s,flags=re.S)
     return HTMLResponse(s)
 @app.get('/api/config')
-async def config():return {'live':LIVE,'server_demo':not LIVE,'bot_username':BOT if LIVE else '', 'version':'0.5.0','demo_as_of':'2026-09-05T11:00:00+04:00','channel_configured':bool(LIVE and CHAT)}
+async def config():return {'live':LIVE,'server_demo':not LIVE,'bot_username':BOT if LIVE else '', 'version':'0.5.0','demo_as_of':'2026-09-05T11:00:00+04:00','channel_configured':bool(LIVE and CHAT),'paid_channel_configured':bool(LIVE and PAID_CHAT)}
 
 @app.get('/healthz')
 async def health():
@@ -413,13 +420,15 @@ async def submit(s:Submission,u=Depends(user)):
         for p in d['photos']:
             r=c.execute('SELECT * FROM photos WHERE id=? AND uid=?',(p['id'],u['id'])).fetchone()
             if not r:raise HTTPException(400,'Одна из фотографий недоступна')
-            photos.append({'id':r['id'],'url':f"/media/{r['id']}.jpg"})
+            photos.append(photo_details(r['id']))
         d['photos']=photos
         fp=hashlib.sha256(dumps(d).encode()).hexdigest()
         old=c.execute('SELECT * FROM listings WHERE uid=? AND fingerprint=?',(u['id'],fp)).fetchone()
         if old:return listing(old,True)
         reasons=[]
-        if d['commission']!=0:raise HTTPException(400,'Эта лента — только без комиссии для арендатора')
+        if d['commission'] is None:raise HTTPException(400,'Укажите комиссию: 0 — без комиссии')
+        if d['commission_type']=='percent' and d['commission']>100:raise HTTPException(400,'Процент комиссии должен быть от 0 до 100')
+        if d['commission']>0 and d['role']!='agent':raise HTTPException(400,'С комиссией могут размещать только агенты')
         for r in c.execute("SELECT payload FROM listings WHERE status IN ('active','review','banned')"):
             p=json.loads(r['payload'])
             if norm(p['address'])==norm(d['address']) and p['city']==d['city'] and p['kind']==d['kind'] and p['rooms']==d['rooms']:
@@ -437,24 +446,35 @@ async def submit(s:Submission,u=Depends(user)):
     if reasons or private:enqueue('admin',{'id':lid},'admin:'+lid)
     return listing(getrow(lid),True)
 
+def photo_details(pid):
+    path=DATA/'photos'/f'{pid}.jpg'
+    with Image.open(path) as im:width,height=im.size
+    result={'id':pid,'url':f'/media/{pid}.jpg','width':width,'height':height}
+    if (DATA/'photos'/f'{pid}-thumb.jpg').exists():result['thumb_url']=f'/media/{pid}-thumb.jpg'
+    return result
+
+def store_photo(raw,uid,tg_file_id=''):
+    im=ImageOps.exif_transpose(Image.open(io.BytesIO(raw))).convert('RGB');im.thumbnail((1600,1600))
+    out=io.BytesIO();im.save(out,'JPEG',quality=82);content=out.getvalue()
+    pid=secrets.token_hex(16);path=DATA/'photos'/f'{pid}.jpg';path.write_bytes(content)
+    thumb=im.copy();thumb.thumbnail((640,640));thumb.save(DATA/'photos'/f'{pid}-thumb.jpg','JPEG',quality=72)
+    with db() as c:c.execute('INSERT INTO photos VALUES(?,?,?,?,?,?)',(pid,uid,str(path),hashlib.sha256(content).hexdigest(),tg_file_id,time.time()))
+    return {'id':pid,'url':f'/media/{pid}.jpg','thumb_url':f'/media/{pid}-thumb.jpg','width':im.width,'height':im.height}
+
 @app.post('/api/photos')
 async def upload_photo(file:UploadFile=File(...),u=Depends(user)):
     rate(u['id'],'photos',100)
     raw=await file.read(10_000_001)
     if len(raw)>10_000_000:raise HTTPException(413,'Фотография больше 10 МБ')
-    try:
-        im=Image.open(io.BytesIO(raw));im=ImageOps.exif_transpose(im).convert('RGB');im.thumbnail((1600,1600))
-        out=io.BytesIO();im.save(out,'JPEG',quality=82);content=out.getvalue()
-    except Exception:raise HTTPException(400,'Нужна фотография JPG, PNG или WebP')
-    pid=secrets.token_hex(16);path=DATA/'photos'/f'{pid}.jpg';path.write_bytes(content)
-    with db() as c:c.execute('INSERT INTO photos VALUES(?,?,?,?,?,?)',(pid,u['id'],str(path),hashlib.sha256(content).hexdigest(),'',time.time()))
-    return {'id':pid,'url':f'/media/{pid}.jpg'}
+    try:return store_photo(raw,u['id'])
+    except (OSError,ValueError,Image.DecompressionBombError):raise HTTPException(400,'Нужна фотография JPG, PNG или WebP')
+
 @app.get('/media/{filename}')
 async def media(filename:str):
-    if not re.fullmatch(r'[a-f0-9]{32}\.jpg',filename):raise HTTPException(404)
+    if not re.fullmatch(r'[a-f0-9]{32}(?:-thumb)?\.jpg',filename):raise HTTPException(404)
     p=DATA/'photos'/filename
     if not p.exists():raise HTTPException(404)
-    return FileResponse(p,media_type='image/jpeg')
+    return FileResponse(p,media_type='image/jpeg',headers={'Cache-Control':'public, max-age=86400'})
 
 @app.get('/api/subscriptions')
 async def subscriptions(u=Depends(user)):
@@ -542,7 +562,7 @@ async def unban_listing(lid:str,u=Depends(admin_user)):
         c.execute("UPDATE listings SET status=?,reason='',payload=? WHERE id=?",(status,dumps(d),lid))
     audit(u['id'],lid,'unban')
     if r['channel_message']:enqueue('edit',{'id':lid},f'unban-edit:{lid}:{secrets.token_hex(4)}')
-    elif CHAT and status=='active':enqueue('publish',{'id':lid},f'unban-publish:{lid}:{secrets.token_hex(4)}')
+    elif publication_target(d)[0] and status=='active':enqueue('publish',{'id':lid},f'unban-publish:{lid}:{secrets.token_hex(4)}')
     return listing(getrow(lid),True)
 
 @app.get('/api/admin/{lid}/private')
@@ -648,11 +668,19 @@ async def tg(method,payload):
     return data.get('result')
 def link(start=''):return f'https://t.me/{BOT}?startapp='+start
 
+def commission_text(l):
+    amount=l.get('commission')
+    if amount==0:return 'Без комиссии'
+    if amount is None:return 'Комиссия не указана'
+    if l.get('commission_type')=='fixed':fee=f"{amount:,} {l.get('commission_currency','AMD')}".replace(',',' ')
+    else:fee=f"{amount}% от аренды за {'сутки' if l.get('commission_basis')=='day' else 'месяц'}"
+    return 'Комиссия агенту: '+fee+' · разово'
+
 def public_text(l):
     title='Комната' if l['kind']=='room' else ('Дом' if l['kind']=='house' else 'Квартира')
     if l.get('rooms') is not None and l['kind']!='room':title+=f" · {l['rooms']} комн."
     prices=' / '.join((f"{p['amount']:,}"+(f"–{p['amount_max']:,}" if p.get('amount_max') else '')+f" {p['currency']} за {'месяц' if p['period']=='month' else 'сутки'}"+(f" ({p['condition']})" if p.get('condition') else '')).replace(',',' ') for p in l['prices'])
-    lines=[title,prices,l['city']+', '+l['address'],'Комиссия: '+('нет' if l['commission']==0 else 'не указана' if l['commission'] is None else str(l['commission'])+'%')]
+    lines=[title,prices,l['city']+', '+l['address'],commission_text(l)]
     if l.get('area'):lines.append(f"{l['area']:g} м²")
     for field,label in [('available','Сдаётся с'),('available_until','Сдаётся до')]:
         if l.get(field):lines.append(label+' '+datetime.strptime(l[field],'%Y-%m-%d').strftime('%d.%m.%Y'))
@@ -674,9 +702,13 @@ def contact_url(l):
     return 'https://t.me/'+contact[1:] if re.fullmatch(r'@[A-Za-z0-9_]{5,32}',contact) else link('l_'+l['id'])
 def keyboard(l):
     return {'inline_keyboard':[[{'text':'Фото и описание','url':link('l_'+l['id'])},{'text':'Связаться','url':contact_url(l)}]]} if l['status']=='active' else {'inline_keyboard':[]}
+def publication_target(l):
+    return (PAID_CHAT,PAID_THREAD) if (l.get('commission') or 0)>0 else (CHAT,THREAD)
+
 async def send_listing(l):
-    kw={'chat_id':CHAT}
-    if THREAD:kw['message_thread_id']=THREAD
+    chat,thread=publication_target(l)
+    kw={'chat_id':chat}
+    if thread:kw['message_thread_id']=thread
     if l.get('photos'):return await tg('sendPhoto',{**kw,'photo':PUBLIC_URL+l['photos'][0]['url'],'caption':public_text(l)[:1000],'reply_markup':keyboard(l)}),'photo'
     return await tg('sendMessage',{**kw,'text':public_text(l),'reply_markup':keyboard(l)}),'text'
 
@@ -686,7 +718,7 @@ async def process_job(j):
         r=getrow(lid);l=listing(r)
         if l.get('sample'):return
     if kind=='publish':
-        if not CHAT or r['channel_message'] or l['status']!='active':return
+        if not publication_target(l)[0] or r['channel_message'] or l['status']!='active':return
         sent,mode=await send_listing(l)
         with db() as c:
             # Re-read after the network call so a concurrent moderation change is retained.
@@ -694,8 +726,9 @@ async def process_job(j):
             payload['_telegram_post']={k:sent[k] for k in ('chat','message_id','message_thread_id') if k in sent}
             c.execute('UPDATE listings SET channel_message=?,channel_kind=?,payload=? WHERE id=?',(sent['message_id'],mode,dumps(payload),lid))
     elif kind=='edit':
-        if not CHAT or not r['channel_message']:return
-        kw={'chat_id':CHAT,'message_id':r['channel_message']}
+        chat=json.loads(r['payload']).get('_telegram_post',{}).get('chat',{}).get('id') or publication_target(l)[0]
+        if not chat or not r['channel_message']:return
+        kw={'chat_id':chat,'message_id':r['channel_message']}
         if r['channel_kind']=='photo':await tg('editMessageCaption',{**kw,'caption':public_text(l)[:1000],'reply_markup':keyboard(l)})
         else:await tg('editMessageText',{**kw,'text':public_text(l),'reply_markup':keyboard(l)})
     elif kind=='admin':
@@ -816,10 +849,7 @@ async def receive(update):
                 resp=await client.get(f'https://api.telegram.org/file/bot{TOKEN}/'+f['file_path']);resp.raise_for_status()
             content=resp.content
             if len(content)<=10_000_000:
-                im=ImageOps.exif_transpose(Image.open(io.BytesIO(content))).convert('RGB');im.thumbnail((1600,1600));buf=io.BytesIO();im.save(buf,'JPEG',quality=82);content=buf.getvalue()
-                pid=secrets.token_hex(16);path=DATA/'photos'/f'{pid}.jpg';path.write_bytes(content)
-                with db() as c:c.execute('INSERT INTO photos VALUES(?,?,?,?,?,?)',(pid,uid,str(path),hashlib.sha256(content).hexdigest(),photo['file_id'],time.time()))
-                photos.append({'id':pid,'url':f'/media/{pid}.jpg'})
+                photos.append(store_photo(content,uid,photo['file_id']))
     with db() as c:c.execute('INSERT OR REPLACE INTO drafts VALUES(?,?,?,?)',(uid,raw,dumps(photos),time.time()))
     if fresh:
         await tg('sendMessage',{'chat_id':uid,'text':'Собираю черновик. Добавьте остальные фото, затем откройте карточку. Для следующего объявления: /new','reply_markup':{'inline_keyboard':[[{'text':'Проверить карточку','web_app':{'url':PUBLIC_URL+'?start=draft'}}]]}})

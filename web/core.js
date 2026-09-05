@@ -23,7 +23,8 @@ function matches(l,f={}){
  if(f.city&&l.city!==f.city)return false;if(f.kind&&l.kind!==f.kind)return false;
  if(f.rooms!==''&&f.rooms!=null&&(f.rooms==='4+'?Number(l.rooms)<4:String(l.rooms)!==String(f.rooms)))return false;
  if(f.district&&l.district!==f.district)return false;
- if(f.zero&&l.commission!==0)return false;
+ if((f.market||'free')==='free'&&l.commission!==0)return false;
+ if(f.market==='paid'&&!(l.role==='agent'&&l.commission>0))return false;
  if(f.owner&&l.role!=='owner')return false;
  if(f.pets&&!['yes','ask'].includes(l.pets))return false;
  if(f.contract&&l.contract!=='yes')return false;

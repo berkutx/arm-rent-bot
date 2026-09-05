@@ -790,8 +790,8 @@
     "rooms": 1,
     "area": 75,
     "floor": null,
-    "role": "owner",
-    "commission": 0,
+    "role": "agent",
+    "commission": 80000,
     "pets": "ask",
     "deposit": null,
     "contract": "unknown",
@@ -816,7 +816,10 @@
       }
     ],
     "editorial_notes": [],
-    "assumed_fields": []
+    "assumed_fields": [],
+    "commission_type": "fixed",
+    "commission_currency": "AMD",
+    "commission_basis": "month"
   },
   {
     "id": "demo-22",
@@ -829,8 +832,8 @@
     "rooms": 2,
     "area": 80,
     "floor": null,
-    "role": "owner",
-    "commission": 0,
+    "role": "agent",
+    "commission": 50,
     "pets": "unknown",
     "deposit": null,
     "contract": "yes",
@@ -855,7 +858,10 @@
       }
     ],
     "editorial_notes": [],
-    "assumed_fields": []
+    "assumed_fields": [],
+    "commission_type": "percent",
+    "commission_currency": "AMD",
+    "commission_basis": "month"
   },
   {
     "id": "demo-23",
@@ -868,8 +874,8 @@
     "rooms": 3,
     "area": 85,
     "floor": null,
-    "role": "owner",
-    "commission": 0,
+    "role": "agent",
+    "commission": 80000,
     "pets": "yes",
     "deposit": null,
     "contract": "unknown",
@@ -894,7 +900,10 @@
       }
     ],
     "editorial_notes": [],
-    "assumed_fields": []
+    "assumed_fields": [],
+    "commission_type": "fixed",
+    "commission_currency": "AMD",
+    "commission_basis": "month"
   },
   {
     "id": "demo-24",
@@ -907,8 +916,8 @@
     "rooms": 4,
     "area": 90,
     "floor": null,
-    "role": "owner",
-    "commission": 0,
+    "role": "agent",
+    "commission": 50,
     "pets": "ask",
     "deposit": null,
     "contract": "yes",
@@ -933,7 +942,10 @@
       }
     ],
     "editorial_notes": [],
-    "assumed_fields": []
+    "assumed_fields": [],
+    "commission_type": "percent",
+    "commission_currency": "AMD",
+    "commission_basis": "month"
   },
   {
     "id": "demo-25",
@@ -946,8 +958,8 @@
     "rooms": 1,
     "area": 35,
     "floor": null,
-    "role": "owner",
-    "commission": 0,
+    "role": "agent",
+    "commission": 80000,
     "pets": "unknown",
     "deposit": null,
     "contract": "unknown",
@@ -972,7 +984,10 @@
       }
     ],
     "editorial_notes": [],
-    "assumed_fields": []
+    "assumed_fields": [],
+    "commission_type": "fixed",
+    "commission_currency": "AMD",
+    "commission_basis": "month"
   },
   {
     "id": "demo-26",
@@ -985,8 +1000,8 @@
     "rooms": 2,
     "area": 40,
     "floor": null,
-    "role": "owner",
-    "commission": 0,
+    "role": "agent",
+    "commission": 50,
     "pets": "yes",
     "deposit": null,
     "contract": "yes",
@@ -1011,7 +1026,10 @@
       }
     ],
     "editorial_notes": [],
-    "assumed_fields": []
+    "assumed_fields": [],
+    "commission_type": "percent",
+    "commission_currency": "AMD",
+    "commission_basis": "month"
   },
   {
     "id": "demo-27",
@@ -1219,8 +1237,8 @@
     "rooms": 4,
     "area": 70,
     "floor": null,
-    "role": "owner",
-    "commission": 0,
+    "role": "agent",
+    "commission": 50,
     "pets": "yes",
     "deposit": null,
     "contract": "yes",
@@ -1245,7 +1263,10 @@
       }
     ],
     "editorial_notes": [],
-    "assumed_fields": []
+    "assumed_fields": [],
+    "commission_type": "percent",
+    "commission_currency": "AMD",
+    "commission_basis": "month"
   },
   {
     "id": "demo-33",
@@ -1297,8 +1318,8 @@
     "rooms": 2,
     "area": 80,
     "floor": null,
-    "role": "owner",
-    "commission": 0,
+    "role": "agent",
+    "commission": 50,
     "pets": "unknown",
     "deposit": null,
     "contract": "yes",
@@ -1323,7 +1344,10 @@
       }
     ],
     "editorial_notes": [],
-    "assumed_fields": []
+    "assumed_fields": [],
+    "commission_type": "percent",
+    "commission_currency": "AMD",
+    "commission_basis": "month"
   },
   {
     "id": "demo-35",
@@ -1375,8 +1399,8 @@
     "rooms": 4,
     "area": 90,
     "floor": null,
-    "role": "owner",
-    "commission": 0,
+    "role": "agent",
+    "commission": 50,
     "pets": "ask",
     "deposit": null,
     "contract": "yes",
@@ -1401,7 +1425,10 @@
       }
     ],
     "editorial_notes": [],
-    "assumed_fields": []
+    "assumed_fields": [],
+    "commission_type": "percent",
+    "commission_currency": "AMD",
+    "commission_basis": "month"
   },
   {
     "id": "demo-37",

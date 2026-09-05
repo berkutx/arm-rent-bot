@@ -1,8 +1,8 @@
-# Свои
+# Аренда в Армении
 
-Telegram Mini App для аренды жилья в Армении без комиссии. FastAPI, SQLite и обычный JavaScript; один процесс, без Redis и Postgres.
+Telegram Mini App для аренды жилья в Армении: без комиссии и через агентов с комиссией. FastAPI, SQLite и обычный JavaScript; один процесс, без Redis и Postgres.
 
-Есть поиск по городу, цене и комнатам, ручная подача, фотографии, подписки, модерация с причиной бана и уникальные просмотры. Проверка собственности — отдельная ручная сверка администратором через e-cadastre.
+Фотографии доступны в ленте альбомов, компактной сетке и PhotoSwipe с увеличением. Есть поиск по городу, цене и комнатам, ручная подача, фотографии, подписки, модерация с причиной бана и уникальные просмотры. Проверка собственности — отдельная ручная сверка администратором через e-cadastre.
 
 ## Запуск
 
@@ -34,6 +34,7 @@ node tests/test_core.js
 python -m playwright install chromium
 python tests/mobile_smoke.py
 python tests/mobile_moderation.py
+python tests/mobile_gallery.py
 ```
 
 Редактировать `web/app.js`, `web/core.js`, `web/style.css` и `web/index.template.html`; затем запускать `build.py`. Node нужен только для JS-тестов, не для работы приложения.
@@ -44,3 +45,5 @@ python tests/mobile_moderation.py
 - [Отложенные задачи](docs/TODO.md)
 
 Экспорты Telegram, базы, ключи, `.env`, фотографии и сведения о частном сервере исключены из Git. Публичная версия не содержит фактически проверенных объектов.
+
+PhotoSwipe 5.4.4 включён локально из [официального проекта](https://github.com/dimsemenov/PhotoSwipe); лицензия MIT — `web/vendor/PHOTOSWIPE-LICENSE`.

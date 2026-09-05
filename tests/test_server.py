@@ -84,7 +84,7 @@ def test_doc_requires_both_fields(client):
     assert client.post('/api/listings',json=body(private={'document_password':'SECRET'}),headers=signed()).status_code==400
 
 def test_subscription_private_and_pause(client):
-    r=client.post('/api/subscriptions',headers=signed(),json={'name':'Дом','filters':{'period':'month','zero':True},'frequency':'instant'});assert r.status_code==200
+    r=client.post('/api/subscriptions',headers=signed(),json={'name':'Дом','filters':{'period':'month','market':'free'},'frequency':'instant'});assert r.status_code==200
     sid=r.json()['id'];assert len(client.get('/api/subscriptions',headers=signed()).json())==1
     assert client.get('/api/subscriptions',headers=signed(100)).json()==[]
     client.patch('/api/subscriptions/'+sid,headers=signed(100),json={'active':False})
