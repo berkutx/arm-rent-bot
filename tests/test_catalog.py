@@ -1,4 +1,4 @@
-"""City/travel persistence and read-only demo catalog regressions."""
+"""City, travel and empty catalog regressions."""
 from test_server import client, body, signed
 import server as s
 import pytest
@@ -32,12 +32,7 @@ def test_unspecified_travel_is_unknown(client):
     assert r.status_code==200
     assert r.json()['metro_walk_minutes'] is None and r.json()['center_drive_minutes'] is None
 
-def test_examples_do_not_seed_live_or_enqueue_jobs(client):
-    with s.db() as c: before=c.execute('SELECT count(*) FROM jobs').fetchone()[0]
-    examples=client.get('/api/examples').json()
-    assert len(examples)==39
-    assert all(x['sample'] and x['document_status']=='none' and not x['is_mine'] for x in examples)
+def test_empty_database_and_no_example_endpoint(client):
     assert client.get('/api/listings').json()==[]
-    assert client.post('/api/examples',json={}).status_code==405
-    assert client.post('/api/listings/'+examples[0]['id']+'/contact',headers=signed()).status_code==404
-    with s.db() as c: assert c.execute('SELECT count(*) FROM jobs').fetchone()[0]==before
+    assert client.get('/api/examples').status_code==404
+    with s.db() as c:assert c.execute('SELECT count(*) FROM jobs').fetchone()[0]==0

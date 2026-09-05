@@ -5,8 +5,8 @@ import pytest
 from fastapi.testclient import TestClient
 import server as s
 
-def signed(uid=42,ts=None,token='test-token'):
-    d={'auth_date':str(int(ts or time.time())),'user':json.dumps({'id':uid,'first_name':'Tester','username':'test_user'},separators=(',',':'))}
+def signed(uid=42,ts=None,token='test-token',username='test_user'):
+    d={'auth_date':str(int(ts or time.time())),'user':json.dumps({'id':uid,'first_name':'Tester','username':username},separators=(',',':'))}
     sec=hmac.new(b'WebAppData',token.encode(),hashlib.sha256).digest()
     d['hash']=hmac.new(sec,'\n'.join(f'{k}={v}' for k,v in sorted(d.items())).encode(),hashlib.sha256).hexdigest()
     return {'X-Telegram-Init-Data':urlencode(d)}
@@ -18,7 +18,7 @@ def client(monkeypatch,tmp_path):
     return TestClient(s.app)
 
 def body(address='Тестовая 12',commission=0,private=None):
-    return {'listing':{'address':address,'kind':'apartment','prices':[{'amount':300000,'currency':'AMD','period':'month'}],'rooms':2,'commission':commission,'role':'owner','document_status':'document_checked','sample':False},'private':private or {},'consent':True}
+    return {'listing':{'address':address,'kind':'apartment','prices':[{'amount':300000,'currency':'AMD','period':'month'}],'rooms':2,'commission':commission,'role':'owner','document_status':'document_checked'},'private':private or {},'consent':True}
 
 def create(c,**kw):
     r=c.post('/api/listings',json=body(**kw),headers=signed());assert r.status_code==200,r.text;return r.json()

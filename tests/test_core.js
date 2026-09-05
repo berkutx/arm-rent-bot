@@ -15,7 +15,7 @@ const midnight=Date.parse('2026-09-05T00:01:00+04:00');
 assert.equal(C.publicationAge({created_at:'2026-09-04T23:59:00+04:00'},midnight).label,'1 д. назад');
 assert.deepEqual([fixture(2),{},fixture(5),fixture(4),fixture(3)].sort(C.newestFirst).map(l=>C.publicationAge(l,now).label),['Сегодня','1 д. назад','2 д. назад','3+ д. назад','Дата не указана']);
 console.log('Publication-age and sorting assertions: passed');
-const seed=require('../seed.json');const conditional=seed.find(l=>l.id==='demo-conditional');
+const conditional=require('./conditional_price.json');
 assert(C.matches(conditional,{period:'month',currency:'AMD',max:'420000'}));
 assert(!C.matches(conditional,{period:'month',currency:'AMD',max:'420000',residence_registration:true}));
 assert(C.matches(conditional,{period:'month',currency:'AMD',max:'450000',residence_registration:true}));
@@ -32,7 +32,7 @@ const phoneCases=JSON.parse(require('fs').readFileSync(require('path').join(__di
 for(const [text,expected] of phoneCases)assert.equal(C.phoneFromText(text),expected,text);
 console.log('Conservative phone mask assertions: passed');
 
-const paid = {...seed[0], status:'active', role:'agent', commission:80000, commission_type:'fixed'};
+const paid = {...conditional, status:'active', role:'agent', commission:80000, commission_type:'fixed'};
 assert(C.matches(paid,{market:'paid'}));
 assert(!C.matches(paid,{market:'free'}));
 assert(!C.matches(paid,{}));

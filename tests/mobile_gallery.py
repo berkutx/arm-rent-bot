@@ -8,12 +8,14 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from PIL import Image, ImageDraw
+import pytest
 from fastapi.testclient import TestClient
 from playwright.sync_api import expect, sync_playwright
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 import server as s
+from test_commission_photos import mock_telegram_files
 from test_server import body, signed
 
 OUT = ROOT / 'test-results'
@@ -30,7 +32,8 @@ with tempfile.TemporaryDirectory(prefix='rent-gallery-', ignore_cleanup_errors=T
     s.CHAT = s.PAID_CHAT = ''
     s.setup()
     client = TestClient(s.app)
-    photos = []
+    photos = [];contents={}
+    patch=pytest.MonkeyPatch()
     for i, color in enumerate(['#365e79', '#658c73', '#c49a64', '#867795']):
         im = Image.new('RGB', (900, 1600) if i == 1 else (1600, 1000), color)
         draw = ImageDraw.Draw(im)
@@ -38,9 +41,11 @@ with tempfile.TemporaryDirectory(prefix='rent-gallery-', ignore_cleanup_errors=T
         draw.text((150, 250), f'TEST PHOTO {i+1}', fill='white', font_size=65)
         raw = io.BytesIO()
         im.save(raw, format='JPEG')
-        response = client.post('/api/photos', headers=signed(), files={'file': ('test.jpg', raw.getvalue(), 'image/jpeg')})
-        assert response.status_code == 200, response.text
-        photos.append(response.json())
+        full_size=im.size;im.thumbnail((800,800));preview=io.BytesIO();im.save(preview,format='JPEG')
+        contents[f'full{i}']=raw.getvalue();contents[f'preview{i}']=preview.getvalue()
+        variants=[{'file_id':name,'file_unique_id':name,'width':size[0],'height':size[1]} for name,size in [(f'full{i}',full_size),(f'preview{i}',im.size)]]
+        photos.append(s.store_telegram_photo(variants,42))
+    mock_telegram_files(patch,contents)
     listings = []
     for i in range(6):
         request = body(address=f'Тестовая {i+10}')

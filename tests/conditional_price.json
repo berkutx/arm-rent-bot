@@ -1,0 +1,21 @@
+{
+  "commission": 0,
+  "residence_registration": "ask",
+  "status": "active",
+  "prices": [
+    {
+      "amount": 400000,
+      "currency": "AMD",
+      "period": "month",
+      "registration": "no",
+      "condition": "Без регистрации и питомцев"
+    },
+    {
+      "amount": 450000,
+      "currency": "AMD",
+      "period": "month",
+      "registration": "yes",
+      "condition": "С регистрацией и питомцами"
+    }
+  ]
+}

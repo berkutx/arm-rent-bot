@@ -66,7 +66,7 @@ def test_ban_requires_admin_reason_and_hides_every_public_path(client):
     for route in ('author-listings','phone-listings'):
         assert client.get('/api/listings/'+first['id']+'/'+route).status_code==404
         assert client.get('/api/listings/'+second['id']+'/'+route).json()['listings']==[]
-    assert client.post('/api/listings/'+first['id']+'/contact',json={},headers=signed()).status_code==409
+    assert client.post('/api/listings/'+first['id']+'/contact',json={},headers=signed()).status_code==404
     assert client.post('/api/listings/'+first['id']+'/view',json={},headers=signed(51)).status_code==404
     assert client.post('/api/listings/'+first['id']+'/status',json={'status':'active'},headers=signed()).status_code==403
     assert client.post('/api/admin/'+first['id']+'/decision',json={'decision':'approve'},headers=signed(99)).status_code==409
@@ -131,12 +131,3 @@ def test_concurrent_views_count_once_per_id_and_survive_setup(client):
     assert client.get('/api/listings/'+row['id']).json()['view_count']==4
     s.setup()
     assert client.post(path,json={},headers=signed(50)).json()['view_count']==4
-
-
-def test_demo_views_remain_unmeasured(client):
-    row=post(client)
-    with s.db() as c:
-        d=json.loads(s.getrow(row['id'])['payload']);d['sample']=True
-        c.execute('UPDATE listings SET payload=? WHERE id=?',(s.dumps(d),row['id']))
-    assert client.post('/api/listings/'+row['id']+'/view',json={},headers=signed()).json()=={'view_count':None}
-    with s.db() as c:assert c.execute('SELECT count(*) FROM listing_views').fetchone()[0]==0

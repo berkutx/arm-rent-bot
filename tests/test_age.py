@@ -19,7 +19,7 @@ def test_old_listings_stay_visible_and_contactable(client):
         l=create(client,address=f'Тестовая {days}');set_age(l['id'],days)
         r=client.get('/api/listings/'+l['id']).json()
         assert r['status']=='active'
-        assert client.post('/api/listings/'+l['id']+'/contact',headers=signed()).status_code==200
+        assert r['contact']=='@test_user'
     assert len(client.get('/api/listings').json())==4
 
 
@@ -69,7 +69,7 @@ def test_manual_rented_hides_and_keeps_date(client):
     r=client.post('/api/listings/'+l['id']+'/status',json={'status':'rented'},headers=signed()).json()
     assert r['status']=='rented' and r['created_at']==before
     assert client.get('/api/listings').json()==[]
-    assert client.post('/api/listings/'+l['id']+'/contact',headers=signed()).status_code==409
+    assert not s.keyboard(r)['inline_keyboard']
 
 
 def test_late_moderation_does_not_expire_or_redate(client):

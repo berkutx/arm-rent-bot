@@ -32,14 +32,6 @@ def test_author_list_hides_nonpublic_and_rented_offers(client):
     assert client.get('/api/listings/missing/author-listings').status_code==404
 
 
-@pytest.mark.parametrize('uid,sample',[(0,False),(42,True)])
-def test_unknown_or_sample_authors_are_not_grouped(client,uid,sample):
-    first=create(client,address='Пример 1');create(client,address='Пример 2')
-    with s.db() as c:
-        payload=json.loads(s.getrow(first['id'])['payload']);payload['sample']=sample
-        c.execute('UPDATE listings SET uid=?,payload=? WHERE id=?',(uid,s.dumps(payload),first['id']))
-    assert not client.get('/api/listings/'+first['id']).json()['author_listings_available']
-    assert client.get('/api/listings/'+first['id']+'/author-listings').json()=={'available':False,'listings':[]}
 
 
 def test_empty_author_catalog_and_unpublished_post(client,monkeypatch):
@@ -80,3 +72,36 @@ def test_actual_publication_link_persists_without_exposing_chat(client,monkeypat
     assert response.json()['telegram_post_url']==expected
     assert '_telegram_post' not in response.text and 'PRIVATE-CHAT-TITLE' not in response.text
     assert response.json()['created_at']==first['created_at']
+
+
+def test_contact_comes_from_authenticated_author(client):
+    request=body();request['listing']['contact']='@another_person'
+    row=client.post('/api/listings',json=request,headers=signed(username='actual_author')).json()
+    assert row['contact']=='@actual_author'
+
+
+def test_no_username_allows_submission_without_contact_relay(client,monkeypatch):
+    request=body();request['listing'].update(contact='@untrusted_user',phone='+37491123456')
+    response=client.post('/api/listings',json=request,headers=signed(username=''))
+    assert response.status_code==200,response.text
+    row=response.json();assert row['contact']=='' and row['telegram_discussion_url']==''
+    assert client.post('/api/listings/'+row['id']+'/contact',headers=signed()).status_code==404
+    calls=[]
+    async def telegram(*args):calls.append(args)
+    monkeypatch.setattr(s,'tg',telegram)
+    asyncio.run(s.process_job({'kind':'contact','payload':json.dumps({'id':row['id'],'from':42})}))
+    assert not calls
+
+
+def test_discussion_link_requires_actual_topic_post(client):
+    row=create(client)
+    payload=json.loads(s.getrow(row['id'])['payload'])
+    payload['_telegram_post']={'chat':{'id':-1001234567890,'type':'supergroup'},'message_id':45,'message_thread_id':7}
+    with s.db() as c:c.execute('UPDATE listings SET payload=? WHERE id=?',(s.dumps(payload),row['id']))
+    data=client.get('/api/listings/'+row['id']).json()
+    assert data['telegram_discussion_url']=='https://t.me/c/1234567890/45?thread=7'
+
+
+def test_local_mode_still_blocks_writes(client,monkeypatch):
+    monkeypatch.setattr(s,'LIVE',False)
+    assert client.post('/api/listings',json=body(),headers=signed()).status_code==503

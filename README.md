@@ -1,49 +1,40 @@
 # Аренда в Армении
 
-Telegram Mini App для аренды жилья в Армении: без комиссии и через агентов с комиссией. FastAPI, SQLite и обычный JavaScript; один процесс, без Redis и Postgres.
+Telegram Mini App: аренда без комиссии и предложения агентов. Лента фото, сетка, поиск, подача, «Мои» и модерация.
 
-Фотографии доступны в ленте альбомов, компактной сетке и PhotoSwipe с увеличением. Есть поиск по городу, цене и комнатам, ручная подача, фотографии, подписки, модерация с причиной бана и уникальные просмотры. Проверка собственности — отдельная ручная сверка администратором через e-cadastre.
+Подача: описание, до 10 фото, цена, адрес и комнаты. Телефон необязателен. Контакт — Telegram автора; без username — обсуждение публикации. Комиссию агент указывает отдельно. Даты аренды и время в пути вводятся вручную.
 
 ## Запуск
 
-Python 3.11+:
-
 ```sh
-python -m venv .venv
-# Linux/macOS:
-. .venv/bin/activate
-# Windows: .venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-python scripts/seed_demo.py
-python server.py
+cp .env.example .env
+# Заполнить локально BOT_TOKEN, BOT_USERNAME, ADMIN_IDS и PUBLIC_URL.
+docker compose up -d --build
 ```
 
-Открыть http://127.0.0.1:8000. По умолчанию `LIVE=0`, Telegram не вызывается. Готовый `web/index.html` можно открыть и без сервера.
+Нужен доверенный HTTPS. LIVE=1 включает Telegram; LIVE=0 позволяет запускать API локально без poller. Данные — data/rent.sqlite3. Начальная база пустая.
 
-`seed.json` содержит **39 вымышленных примеров** без реальных контактов, исходных сообщений и фотографий. Демо не импортируется в рабочую базу.
+PUBLISH_CHAT_ID/PUBLISH_THREAD_ID — публикации без комиссии; PUBLISH_PAID_CHAT_ID/PUBLISH_PAID_THREAD_ID — агентские. Пустые значения отключают публикацию. Пока обсуждение не подключено, его кнопка недоступна.
 
-Для бота скопировать `.env.example` в `.env` и заполнить локально. Нужны HTTPS, токен бота и числовые ID администраторов. [Размещение](docs/DEPLOYMENT.md).
+Один FastAPI-процесс, SQLite/WAL, 256 MiB RAM. Node, Redis и Postgres для запуска не нужны. Фото отправляются в чат бота; Telegram хранит их и готовит размеры. Сервер хранит file_id и передаёт фото без обработки, скрывая токен. Галерея — PhotoSwipe (MIT, web/vendor).
 
-## Разработка
+## Изменения и обслуживание
+
+Редактировать web/app.js, core.js, style.css и index.template.html; затем `python build.py`.
 
 ```sh
 pip install -r requirements-dev.txt
-python build.py
 python -m pytest -q
 node tests/test_core.js
-python -m playwright install chromium
 python tests/mobile_smoke.py
 python tests/mobile_moderation.py
 python tests/mobile_gallery.py
 ```
 
-Редактировать `web/app.js`, `web/core.js`, `web/style.css` и `web/index.template.html`; затем запускать `build.py`. Node нужен только для JS-тестов, не для работы приложения.
+Для браузерных тестов установить Chromium: `python -m playwright install chromium` или задать CHROMIUM_PATH.
 
-- [Правила продукта](docs/PRODUCT.md)
-- [Проверка собственности](docs/VERIFICATION.md)
-- [Тесты и ограничения](docs/TESTING.md)
-- [Отложенные задачи](docs/TODO.md)
+Перед обновлением: `python scripts/backup.py --database data/rent.sqlite3 --output /secure/backup.sqlite3`. Копия исключает реквизиты проверки. Сохранять том и private.key; обновлять только app, не затрагивая соседние сервисы. HTTPS-примеры — deploy/. Один токен — один poller.
 
-Экспорты Telegram, базы, ключи, `.env`, фотографии и сведения о частном сервере исключены из Git. Публичная версия не содержит фактически проверенных объектов.
+Проверка собственности добровольная: администратор сверяет документ через e-cadastre, отдельно личность и полномочия. Номер и пароль документа шифруются и удаляются после решения или через 7 дней. Копии документов не загружаются.
 
-PhotoSwipe 5.4.4 включён локально из [официального проекта](https://github.com/dimsemenov/PhotoSwipe); лицензия MIT — `web/vendor/PHOTOSWIPE-LICENSE`.
+.env, ключи, базы, фотографии и экспорты не публикуются. Перед push обязательны ревью и проверка секретов.

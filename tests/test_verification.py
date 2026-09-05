@@ -50,42 +50,21 @@ def test_expired_credentials_purged_not_advert(client):
 def test_phone_not_required_and_not_identity(client):
  l=create(client)
  assert not l['phone'] and l['contact']=='@test_user' and l['document_status']=='none'
- x=body('Другой адрес 2');x['listing']['phone']='+37499123456';x['listing']['contact_mode']='phone'
+ x=body('Другой адрес 2');x['listing']['phone']='+37499123456'
  l=client.post('/api/listings',json=x,headers=signed()).json()
  assert l['phone']=='+37499123456' and l['document_status']=='none'
 
 def test_registration_price_condition():
- l=next(x for x in json.loads((s.ROOT/'seed.json').read_text(encoding='utf-8')) if x['id']=='demo-conditional')
+ l=json.loads((s.ROOT/'tests/conditional_price.json').read_text(encoding='utf-8'))
  assert s.matches(l,{'period':'month','currency':'AMD','max':'420000'})
  assert not s.matches(l,{'period':'month','currency':'AMD','max':'420000','residence_registration':True})
  assert s.matches(l,{'period':'month','currency':'AMD','max':'450000','residence_registration':True})
 
-def test_seed_no_false_verification_or_missing_provenance():
- ls=json.loads((s.ROOT/'seed.json').read_text(encoding='utf-8'))
- assert len(ls)==39
- assert all(l['sample'] and l['document_status']=='none' and (l['commission']==0 or l['role']=='agent') for l in ls)
- assert all(l['provenance']=='synthetic' and not l.get('source_url') and not l.get('source_id') and not l.get('phone') and not l.get('contact') for l in ls)
- assert all(not l['photos'] for l in ls)
- assert len({l['id'] for l in ls})==39
 
-def test_seed_cannot_send_or_verify(client,monkeypatch):
- l=create(client);lid=l['id'];calls=[]
- with s.db() as c:
-  payload=json.loads(s.getrow(lid)['payload']);payload['sample']=True
-  c.execute('update listings set payload=? where id=?',(s.dumps(payload),lid));c.execute('delete from jobs')
- async def fake(*args):calls.append(args);return {}
- monkeypatch.setattr(s,'tg',fake)
- s.active_effects(lid)
- for kind in ('publish','match','contact','admin','verification_result'):
-  asyncio.run(s.process_job({'kind':kind,'payload':s.dumps({'id':lid,'uid':42,'from':42})}))
- assert not calls
- assert client.post(f'/api/listings/{lid}/contact',headers=signed()).status_code==409
- assert client.post(f'/api/listings/{lid}/verification',headers=signed(),json=V).status_code==409
- with s.db() as c:assert c.execute('select count(*) from jobs').fetchone()[0]==0
 
-def test_live_html_has_no_seed(client):
+def test_html_has_no_embedded_catalog(client):
  txt=client.get('/').text
- assert '<script id="seed-data" type="application/json">[]</script>' in txt
+ assert 'seed-data' not in txt and '/api/examples' not in txt
  assert 'Барбюса 66' not in txt
 
 

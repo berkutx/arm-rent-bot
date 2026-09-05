@@ -1,6 +1,6 @@
 """Telegram Mini App. One process; network writes require LIVE=1."""
 from __future__ import annotations
-import asyncio, contextlib, hashlib, hmac, html, io, json, logging, os, re, secrets, sqlite3, time
+import asyncio, contextlib, hashlib, hmac, json, logging, os, re, secrets, sqlite3, time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -8,11 +8,10 @@ from typing import Literal
 from urllib.parse import parse_qsl
 import httpx
 from cryptography.fernet import Fernet
-from fastapi import FastAPI, Depends, HTTPException, Request, UploadFile, File
+from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field, ConfigDict
-from PIL import Image, ImageOps
 
 ROOT=Path(__file__).resolve().parent
 # Read a local .env without an additional dependency. Never include this file in source control.
@@ -30,11 +29,11 @@ PAID_CHAT=os.getenv('PUBLISH_PAID_CHAT_ID','')
 PAID_THREAD=int(os.getenv('PUBLISH_PAID_THREAD_ID','0')) or None
 ADMINS={int(v) for v in os.getenv('ADMIN_IDS','').split(',') if v.strip().isdigit()}
 DATA=Path(os.getenv('DATA_DIR',str(ROOT/'data')))
-DB=DATA/('rent.sqlite3' if LIVE else 'demo.sqlite3')
+DB=DATA/'rent.sqlite3'
 CIPHER=None
 VIEW_SECRET=None
 log=logging.getLogger('rent')
-Image.MAX_IMAGE_PIXELS=25_000_000
+FILE_PATHS={}
 
 def db():
     c=sqlite3.connect(DB,timeout=15);c.row_factory=sqlite3.Row
@@ -44,7 +43,6 @@ def db():
 def setup():
     global CIPHER,VIEW_SECRET
     DATA.mkdir(parents=True,exist_ok=True);os.chmod(DATA,0o700)
-    (DATA/'photos').mkdir(exist_ok=True)
     kp=DATA/'private.key'
     if not kp.exists():kp.write_bytes(Fernet.generate_key());os.chmod(kp,0o600)
     CIPHER=Fernet(kp.read_bytes())
@@ -56,7 +54,7 @@ def setup():
         CREATE TABLE IF NOT EXISTS users(uid INTEGER PRIMARY KEY, username TEXT, name TEXT, started INTEGER DEFAULT 0);
         CREATE TABLE IF NOT EXISTS listings(id TEXT PRIMARY KEY, uid INTEGER, payload TEXT, status TEXT, created REAL, confirmed REAL, fingerprint TEXT, private BLOB, private_expires REAL, reason TEXT, channel_message INTEGER, channel_kind TEXT, reminded REAL DEFAULT 0, UNIQUE(uid,fingerprint));
         CREATE INDEX IF NOT EXISTS listings_author ON listings(uid,status,created);
-        CREATE TABLE IF NOT EXISTS photos(id TEXT PRIMARY KEY, uid INTEGER, path TEXT, sha TEXT, tg_file_id TEXT, created REAL);
+        CREATE TABLE IF NOT EXISTS photos(id TEXT PRIMARY KEY, uid INTEGER, sha TEXT, tg_file_id TEXT, created REAL, sizes TEXT);
         CREATE TABLE IF NOT EXISTS subscriptions(id TEXT PRIMARY KEY,uid INTEGER,name TEXT,filters TEXT,frequency TEXT,active INTEGER,created REAL,last_digest TEXT);
         CREATE TABLE IF NOT EXISTS deliveries(uid INTEGER,lid TEXT,PRIMARY KEY(uid,lid));
         CREATE TABLE IF NOT EXISTS jobs(id INTEGER PRIMARY KEY AUTOINCREMENT,kind TEXT,payload TEXT,jobkey TEXT UNIQUE,status TEXT DEFAULT 'pending',run_at REAL,attempts INTEGER DEFAULT 0);
@@ -64,6 +62,7 @@ def setup():
         CREATE TABLE IF NOT EXISTS drafts(uid INTEGER PRIMARY KEY,text TEXT,photos TEXT,updated REAL);
         CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY,value TEXT);
         ''')
+        if 'sizes' not in {r['name'] for r in c.execute('PRAGMA table_info(photos)')}:c.execute('ALTER TABLE photos ADD COLUMN sizes TEXT')
         columns={row['name'] for row in c.execute('PRAGMA table_info(listings)')}
         if 'view_count' not in columns:c.execute('ALTER TABLE listings ADD COLUMN view_count INTEGER NOT NULL DEFAULT 0')
         if 'phone_key' not in columns:
@@ -130,7 +129,7 @@ def validate_init_data(raw:str,token:str,now:float|None=None)->dict:
     return user
 
 def user(request:Request):
-    if not LIVE:raise HTTPException(503,'Сервер в деморежиме. Изменения выполняются только в браузере.')
+    if not LIVE:raise HTTPException(503,'Запись на сервере отключена')
     try:u=validate_init_data(request.headers.get('X-Telegram-Init-Data',''),TOKEN)
     except (ValueError,TypeError,json.JSONDecodeError) as e:raise HTTPException(401,str(e))
     with db() as c:c.execute('INSERT INTO users(uid,username,name) VALUES(?,?,?) ON CONFLICT(uid) DO UPDATE SET username=excluded.username,name=excluded.name',(u['id'],u.get('username',''),u.get('first_name','')))
@@ -181,7 +180,6 @@ class ListingIn(BaseModel):
     description:str=Field(default='',max_length=12000)
     contact:str=Field(default='',max_length=40)
     phone:str|None=Field(default=None,max_length=40)
-    contact_mode:Literal['telegram','phone','relay']='telegram'
     contract:Literal['yes','no','ask','unknown']='unknown'
     residence_registration:Literal['yes','no','ask','unknown']='unknown'
     lease_registration:Literal['yes','no','ask','unknown']='unknown'
@@ -243,13 +241,14 @@ def listing(r,mine=False):
     d=json.loads(r['payload'])
     post=d.pop('_telegram_post',None)
     d.pop('_status_before_ban',None)
-    d['view_count']=None if d.get('sample') else r['view_count']
-    d['phone_listings_available']=bool(r['phone_key'] and d.get('role')!='agent' and not d.get('sample'))
-    d['telegram_post_url']=telegram_post_url(post) if not d.get('sample') else ''
-    d['author_listings_available']=bool(r['uid'] and r['uid']>0 and not d.get('sample'))
+    d['view_count']=r['view_count']
+    d['phone_listings_available']=bool(r['phone_key'] and d.get('role')!='agent')
+    d['telegram_post_url']=telegram_post_url(post)
+    d['telegram_discussion_url']=telegram_post_url(post) if isinstance(post,dict) and post.get('chat',{}).get('type')=='supergroup' and post.get('message_thread_id') else ''
+    d['author_listings_available']=bool(r['uid'] and r['uid']>0)
     for old_key in ('confirmed_at','expires_at','confirmation_by','source_author_id','moderator_note'):
         d.pop(old_key,None)
-    d.update(id=r['id'],status=r['status'],created_at=stamp(r['created']),is_mine=mine,sample=bool(d.get('sample',False)),photo_count=d.get('photo_count') or len(d.get('photos',[])))
+    d.update(id=r['id'],status=r['status'],created_at=stamp(r['created']),is_mine=mine,photo_count=d.get('photo_count') or len(d.get('photos',[])))
     if mine:
         d['review_reason']=r['reason']
         d['ban_reason']=r['reason'] if r['status']=='banned' else ''
@@ -279,7 +278,6 @@ def matches(l,f):
 
 def active_effects(lid):
     r=getrow(lid);l=listing(r)
-    if l.get('sample'):return  # Export samples can never trigger outgoing publications or alerts.
     enqueue('publish',{'id':lid},'publish:'+lid)
     with db() as c:subs=c.execute("SELECT * FROM subscriptions WHERE active=1 AND frequency='instant' AND created<=?",(time.time(),)).fetchall()
     for s in subs:
@@ -297,7 +295,7 @@ async def lifespan(app):
         for t in tasks:t.cancel()
         for t in tasks:
             with contextlib.suppress(asyncio.CancelledError):await t
-app=FastAPI(title='Аренда в Армении — прототип',lifespan=lifespan,docs_url=None,redoc_url=None,openapi_url=None)
+app=FastAPI(title='Аренда в Армении',lifespan=lifespan,docs_url=None,redoc_url=None,openapi_url=None)
 
 @app.middleware('http')
 async def headers(req,call_next):
@@ -316,23 +314,16 @@ async def invalid_request(req:Request,exc:RequestValidationError):
 @app.get('/')
 async def index():
     s=(ROOT/'web/index.html').read_text(encoding='utf-8')
-    if LIVE:s=re.sub(r'(<script id="seed-data" type="application/json">).*?(</script>)',r'\1[]\2',s,flags=re.S)
     return HTMLResponse(s)
 @app.get('/api/config')
-async def config():return {'live':LIVE,'server_demo':not LIVE,'bot_username':BOT if LIVE else '', 'version':'0.5.0','demo_as_of':'2026-09-05T11:00:00+04:00','channel_configured':bool(LIVE and CHAT),'paid_channel_configured':bool(LIVE and PAID_CHAT)}
+async def config():return {'live':LIVE,'bot_username':BOT if LIVE else '', 'version':'0.5.0','channel_configured':bool(LIVE and CHAT),'paid_channel_configured':bool(LIVE and PAID_CHAT)}
 
 @app.get('/healthz')
 async def health():
     with db() as c:c.execute('SELECT 1')
-    return {'ok':True,'mode':'live' if LIVE else 'demo','version':'0.5.0'}
+    return {'ok':True,'mode':'live' if LIVE else 'local','version':'0.5.0'}
 @app.get('/api/me')
 async def me(u=Depends(user)):return {'id':u['id'],'username':u.get('username',''),'first_name':u.get('first_name',''),'is_admin':u['id'] in ADMINS}
-@app.get('/api/examples')
-async def examples():
-    # Read-only curated examples; never imported into the live database or job queue.
-    records=json.loads((ROOT/'seed.json').read_text(encoding='utf-8'))
-    return [{**d,'sample':True,'document_status':'none','is_mine':False} for d in records]
-
 @app.get('/api/listings')
 async def listings():
     with db() as c:rs=c.execute("SELECT * FROM listings WHERE status='active' ORDER BY created DESC LIMIT 500").fetchall()
@@ -347,11 +338,10 @@ async def public_listing(lid:str):
 async def author_listings(lid:str):
     r=getrow(lid)
     if r['status'] not in ('active','rented'):raise HTTPException(404,'Объявление недоступно')
-    # Export rows share a synthetic uid: never present them as one person's offers.
     if not listing(r)['author_listings_available']:return {'available':False,'listings':[]}
     with db() as c:
         rows=c.execute("SELECT * FROM listings WHERE uid=? AND id<>? AND status='active' ORDER BY created DESC,id DESC LIMIT 500",(r['uid'],lid)).fetchall()
-    return {'available':True,'listings':[listing(row) for row in rows if not json.loads(row['payload']).get('sample')]}
+    return {'available':True,'listings':[listing(row) for row in rows]}
 
 @app.get('/api/listings/{lid}/phone-listings')
 async def phone_listings(lid:str):
@@ -360,7 +350,7 @@ async def phone_listings(lid:str):
     if not listing(r)['phone_listings_available']:return {'available':False,'listings':[]}
     with db() as c:
         rows=c.execute("SELECT * FROM listings WHERE phone_key=? AND id<>? AND status='active' AND COALESCE(json_extract(payload,'$.role'),'unknown')<>'agent' ORDER BY created DESC,id DESC LIMIT 500",(r['phone_key'],lid)).fetchall()
-    return {'available':True,'listings':[listing(row) for row in rows if not json.loads(row['payload']).get('sample')]}
+    return {'available':True,'listings':[listing(row) for row in rows]}
 
 @app.post('/api/listings/{lid}/view')
 async def record_view(lid:str,u=Depends(user)):
@@ -371,7 +361,6 @@ async def record_view(lid:str,u=Depends(user)):
         c.execute('BEGIN IMMEDIATE')
         r=c.execute('SELECT * FROM listings WHERE id=?',(lid,)).fetchone()
         if not r or r['status'] not in ('active','rented'):raise HTTPException(404,'Объявление недоступно')
-        if json.loads(r['payload']).get('sample'):return {'view_count':None}
         added=c.execute('INSERT OR IGNORE INTO listing_views(lid,viewer_key) VALUES(?,?)',(lid,key)).rowcount
         if added:c.execute('UPDATE listings SET view_count=view_count+1 WHERE id=?',(lid,))
         count=c.execute('SELECT view_count FROM listings WHERE id=?',(lid,)).fetchone()[0]
@@ -394,13 +383,10 @@ async def submit(s:Submission,u=Depends(user)):
     if len(d['address'])<3:raise HTTPException(400,'Укажите адрес')
     if d['kind']!='house' and not re.search(r'\d',d['address']):raise HTTPException(400,'Укажите улицу и номер дома. Номер квартиры не нужен.')
     if d['kind']=='apartment' and d['rooms'] is None:raise HTTPException(400,'Укажите число комнат или студию')
-    if d['contact'] and not re.fullmatch(r'@[A-Za-z0-9_]{5,32}',d['contact']):raise HTTPException(400,'Контакт должен иметь вид @username')
+    username=u.get('username','')
+    d['contact']='@'+username if re.fullmatch(r'[A-Za-z0-9_]{5,32}',username) else ''
     d['phone']=phone_from_text(d['description']) if d['phone'] is None else re.sub(r'[ ()\-\u00a0]','',d['phone'])
     if d['phone'] and not re.fullmatch(r'\+[1-9]\d{7,14}',d['phone']):raise HTTPException(400,'Номер нужен в международном формате: +374…')
-    if d['contact_mode']=='phone' and not d['phone']:raise HTTPException(400,'Добавьте телефон или выберите Telegram')
-    if d['contact_mode']=='telegram' and not d['contact']:
-        d['contact']='@'+u['username'] if u.get('username') else ''
-        if not d['contact']:d['contact_mode']='relay'
     if d['city']=='Ереван' and d['district'] and d['district'] not in {x['name'] for x in json.loads((ROOT/'web/districts.json').read_text(encoding='utf-8'))}:raise HTTPException(400,'Выберите район из списка')
     for price in d['prices']:
         if price.get('amount_max') and price['amount_max']<price['amount']:raise HTTPException(400,'Верхняя цена меньше нижней')
@@ -446,35 +432,62 @@ async def submit(s:Submission,u=Depends(user)):
     if reasons or private:enqueue('admin',{'id':lid},'admin:'+lid)
     return listing(getrow(lid),True)
 
+def photo_sizes(pid):
+    with db() as c:r=c.execute('SELECT sizes FROM photos WHERE id=?',(pid,)).fetchone()
+    if not r or not r['sizes']:raise HTTPException(404,'Фото недоступно')
+    return json.loads(r['sizes'])
+
 def photo_details(pid):
-    path=DATA/'photos'/f'{pid}.jpg'
-    with Image.open(path) as im:width,height=im.size
-    result={'id':pid,'url':f'/media/{pid}.jpg','width':width,'height':height}
-    if (DATA/'photos'/f'{pid}-thumb.jpg').exists():result['thumb_url']=f'/media/{pid}-thumb.jpg'
-    return result
+    sizes=photo_sizes(pid);full=sizes['full']
+    return {'id':pid,'url':f'/media/{pid}.jpg','thumb_url':f'/media/{pid}-thumb.jpg','width':full['width'],'height':full['height']}
 
-def store_photo(raw,uid,tg_file_id=''):
-    im=ImageOps.exif_transpose(Image.open(io.BytesIO(raw))).convert('RGB');im.thumbnail((1600,1600))
-    out=io.BytesIO();im.save(out,'JPEG',quality=82);content=out.getvalue()
-    pid=secrets.token_hex(16);path=DATA/'photos'/f'{pid}.jpg';path.write_bytes(content)
-    thumb=im.copy();thumb.thumbnail((640,640));thumb.save(DATA/'photos'/f'{pid}-thumb.jpg','JPEG',quality=72)
-    with db() as c:c.execute('INSERT INTO photos VALUES(?,?,?,?,?,?)',(pid,uid,str(path),hashlib.sha256(content).hexdigest(),tg_file_id,time.time()))
-    return {'id':pid,'url':f'/media/{pid}.jpg','thumb_url':f'/media/{pid}-thumb.jpg','width':im.width,'height':im.height}
+def store_telegram_photo(sizes,uid):
+    sizes=[{k:p[k] for k in ('file_id','file_unique_id','width','height','file_size') if k in p} for p in sizes if p.get('file_id') and p.get('file_unique_id') and p.get('width',0)>0 and p.get('height',0)>0 and p.get('file_size',0)<=20_000_000]
+    if not sizes:raise HTTPException(400,'Telegram не предоставил фотографию')
+    full=max(sizes,key=lambda p:p['width']*p['height'])
+    thumb=min(sizes,key=lambda p:abs(max(p['width'],p['height'])-640))
+    pid=secrets.token_hex(16)
+    with db() as c:c.execute('INSERT INTO photos(id,uid,sha,tg_file_id,created,sizes) VALUES(?,?,?,?,?,?)',(pid,uid,full['file_unique_id'],full['file_id'],time.time(),dumps({'full':full,'thumb':thumb})))
+    return photo_details(pid)
 
-@app.post('/api/photos')
-async def upload_photo(file:UploadFile=File(...),u=Depends(user)):
-    rate(u['id'],'photos',100)
-    raw=await file.read(10_000_001)
-    if len(raw)>10_000_000:raise HTTPException(413,'Фотография больше 10 МБ')
-    try:return store_photo(raw,u['id'])
-    except (OSError,ValueError,Image.DecompressionBombError):raise HTTPException(400,'Нужна фотография JPG, PNG или WebP')
+async def telegram_file_path(file_id):
+    cached=FILE_PATHS.get(file_id)
+    if cached and cached[1]>time.monotonic():return cached[0]
+    file=await tg('getFile',{'file_id':file_id});path=file.get('file_path','')
+    if not re.fullmatch(r'photos/[A-Za-z0-9_.-]+',path) or '..' in path:raise HTTPException(502,'Фото временно недоступно')
+    if len(FILE_PATHS)>=512:FILE_PATHS.pop(next(iter(FILE_PATHS)))
+    FILE_PATHS[file_id]=(path,time.monotonic()+3000)
+    return path
 
 @app.get('/media/{filename}')
 async def media(filename:str):
-    if not re.fullmatch(r'[a-f0-9]{32}(?:-thumb)?\.jpg',filename):raise HTTPException(404)
-    p=DATA/'photos'/filename
-    if not p.exists():raise HTTPException(404)
-    return FileResponse(p,media_type='image/jpeg',headers={'Cache-Control':'public, max-age=86400'})
+    match=re.fullmatch(r'([a-f0-9]{32})(-thumb)?\.jpg',filename)
+    if not match:raise HTTPException(404)
+    photo=photo_sizes(match[1])['thumb' if match[2] else 'full']
+    client=httpx.AsyncClient(timeout=30)
+    try:
+        for attempt in range(2):
+            path=await telegram_file_path(photo['file_id'])
+            response=await client.send(client.build_request('GET',f'https://api.telegram.org/file/bot{TOKEN}/'+path),stream=True)
+            if response.status_code!=404 or attempt:break
+            await response.aclose();FILE_PATHS.pop(photo['file_id'],None)
+        if response.status_code!=200 or int(response.headers.get('content-length','0'))>20_000_000:
+            await response.aclose();raise HTTPException(502,'Фото временно недоступно')
+    except (TelegramError,httpx.HTTPError,HTTPException,ValueError):
+        await client.aclose();raise HTTPException(502,'Фото временно недоступно') from None
+    async def content():
+        size=0
+        try:
+            async for chunk in response.aiter_bytes(65536):
+                size+=len(chunk)
+                if size>20_000_000:raise RuntimeError('Photo transfer exceeded size limit')
+                yield chunk
+        except httpx.HTTPError:raise RuntimeError('Photo transfer interrupted') from None
+        finally:
+            await response.aclose();await client.aclose()
+    headers={'Cache-Control':'public, max-age=86400','X-Content-Type-Options':'nosniff'}
+    if response.headers.get('content-length'):headers['Content-Length']=response.headers['content-length']
+    return StreamingResponse(content(),media_type='image/jpeg',headers=headers)
 
 @app.get('/api/subscriptions')
 async def subscriptions(u=Depends(user)):
@@ -513,13 +526,6 @@ def status_change(lid,uid,status):
     return listing(getrow(lid),True)
 @app.post('/api/listings/{lid}/status')
 async def set_status(lid:str,s:StatusIn,u=Depends(user)):return status_change(lid,u['id'],s.status)
-@app.post('/api/listings/{lid}/contact')
-async def contact(lid:str,u=Depends(user)):
-    rate(u['id'],'contact',10);r=getrow(lid)
-    if listing(r)['status']!='active':raise HTTPException(409,'Объявление снято с публикации')
-    if listing(r).get('sample'):raise HTTPException(409,'Это пример: контакт доступен в исходном посте')
-    enqueue('contact',{'id':lid,'from':u['id']},f"contact:{lid}:{u['id']}:{int(time.time()/86400)}")
-    return {'ok':True}
 @app.post('/api/listings/{lid}/report')
 async def report(lid:str,u=Depends(user)):
     rate(u['id'],'report',10);getrow(lid);audit(u['id'],lid,'report')
@@ -533,7 +539,7 @@ async def queue(u=Depends(admin_user)):
 async def admin_listings(status:Literal['all','banned']='all',u=Depends(admin_user)):
     with db() as c:
         rows=c.execute("SELECT * FROM listings WHERE (?='all' OR status=?) ORDER BY created DESC LIMIT 500",(status,status)).fetchall()
-    return [listing(r,True) for r in rows if not json.loads(r['payload']).get('sample')]
+    return [listing(r,True) for r in rows]
 
 @app.post('/api/admin/{lid}/ban')
 async def ban_listing(lid:str,x:BanIn,u=Depends(admin_user)):
@@ -543,7 +549,6 @@ async def ban_listing(lid:str,x:BanIn,u=Depends(admin_user)):
         c.execute('BEGIN IMMEDIATE');r=c.execute('SELECT * FROM listings WHERE id=?',(lid,)).fetchone()
         if not r:raise HTTPException(404,'Объявление не найдено')
         d=json.loads(r['payload'])
-        if d.get('sample'):raise HTTPException(409,'Это учебный пример')
         if r['status']!='banned':d['_status_before_ban']=r['status']
         if d.get('document_status')=='pending':d['document_status']='none'
         c.execute("UPDATE listings SET status='banned',reason=?,payload=?,private=NULL,private_expires=NULL WHERE id=?",(reason,dumps(d),lid))
@@ -594,6 +599,21 @@ async def draft(u=Depends(user)):
     with db() as c:r=c.execute('SELECT * FROM drafts WHERE uid=?',(u['id'],)).fetchone()
     return {'text':r['text'],'photos':json.loads(r['photos'])} if r else {'text':'','photos':[]}
 
+class DraftIn(BaseModel):
+    text:str=Field(default='',max_length=12000)
+    photos:list[str]=Field(default_factory=list,max_length=10)
+
+@app.post('/api/draft')
+async def save_draft(x:DraftIn,u=Depends(user)):
+    rate(u['id'],'draft',100)
+    photos=[]
+    with db() as c:
+        for pid in dict.fromkeys(x.photos):
+            if not c.execute('SELECT 1 FROM photos WHERE id=? AND uid=?',(pid,u['id'])).fetchone():raise HTTPException(400,'Фото не принадлежит автору')
+            photos.append(photo_details(pid))
+        c.execute('INSERT OR REPLACE INTO drafts VALUES(?,?,?,?)',(u['id'],x.text,dumps(photos),time.time()))
+    return {'ok':True}
+
 class VerificationIn(BaseModel):
     document_number:str=Field(min_length=4,max_length=80)
     document_password:str=Field(min_length=4,max_length=100)
@@ -618,7 +638,6 @@ async def request_verification(lid:str,x:VerificationIn,u=Depends(user)):
     if not x.consent:raise HTTPException(400,'Нужно согласие на просмотр документа администратором')
     rate(u['id'],'verification',5)
     d=json.loads(r['payload'])
-    if d.get('sample'):raise HTTPException(409,'Архивный пример нельзя выдавать за проверенный объект')
     payload=x.model_dump(exclude={'consent'})
     secret=CIPHER.encrypt(dumps(payload).encode())
     d['document_status']='pending'
@@ -632,7 +651,6 @@ async def request_verification(lid:str,x:VerificationIn,u=Depends(user)):
 @app.post('/api/admin/{lid}/verification')
 async def verification_decision(lid:str,x:VerificationDecision,u=Depends(admin_user)):
     r=getrow(lid);d=json.loads(r['payload'])
-    if d.get('sample'):raise HTTPException(409,'Учебные примеры не подтверждаются')
     if d.get('document_status')!='pending' or not r['private'] or r['private_expires']<time.time():
         raise HTTPException(409,'Нет действующей заявки на проверку')
     today=datetime.now(timezone(timedelta(hours=4))).date()
@@ -709,14 +727,13 @@ async def send_listing(l):
     chat,thread=publication_target(l)
     kw={'chat_id':chat}
     if thread:kw['message_thread_id']=thread
-    if l.get('photos'):return await tg('sendPhoto',{**kw,'photo':PUBLIC_URL+l['photos'][0]['url'],'caption':public_text(l)[:1000],'reply_markup':keyboard(l)}),'photo'
+    if l.get('photos'):return await tg('sendPhoto',{**kw,'photo':photo_sizes(l['photos'][0]['id'])['full']['file_id'],'caption':public_text(l)[:1000],'reply_markup':keyboard(l)}),'photo'
     return await tg('sendMessage',{**kw,'text':public_text(l),'reply_markup':keyboard(l)}),'text'
 
 async def process_job(j):
     kind=j['kind'];p=json.loads(j['payload']);uid=p.get('uid');lid=p.get('id')
     if lid:
         r=getrow(lid);l=listing(r)
-        if l.get('sample'):return
     if kind=='publish':
         if not publication_target(l)[0] or r['channel_message'] or l['status']!='active':return
         sent,mode=await send_listing(l)
@@ -755,12 +772,6 @@ async def process_job(j):
         await tg('sendMessage',{'chat_id':uid,'text':txt[:4000],'link_preview_options':{'is_disabled':True}})
         with db() as c:
             for x in selected:c.execute('INSERT OR IGNORE INTO deliveries VALUES(?,?)',(uid,x['id']))
-    elif kind=='contact':
-        if l['status']!='active':return
-        with db() as c:sender=c.execute('SELECT * FROM users WHERE uid=?',(p['from'],)).fetchone()
-        if not sender:return
-        name=html.escape(sender['name'] or 'Пользователь');url='https://t.me/'+sender['username'] if sender['username'] else 'tg://user?id='+str(p['from'])
-        await tg('sendMessage',{'chat_id':r['uid'],'text':f'<a href="{html.escape(url,quote=True)}">{name}</a> интересуется объявлением: {html.escape(l["address"])}.','parse_mode':'HTML'})
     elif kind=='verification_result':
         await tg('sendMessage',{'chat_id':r['uid'],'text':'Проверка объявления завершена: '+l['address']+'. Результат и дата — в карточке.','reply_markup':{'inline_keyboard':[[{'text':'Открыть карточку','url':link('l_'+lid)}]]}})
     elif kind=='reminder':
@@ -828,6 +839,8 @@ async def receive(update):
         await tg('sendMessage',{'chat_id':uid,'text':'Все поисковые уведомления приостановлены.'});return
     if text.startswith('/myid'):
         await tg('sendMessage',{'chat_id':uid,'text':str(uid)});return
+    if text=='/start photos':
+        await tg('sendMessage',{'chat_id':uid,'text':'Пришлите до 10 фотографий альбомом, затем вернитесь к объявлению.','reply_markup':{'inline_keyboard':[[{'text':'Вернуться к объявлению','web_app':{'url':PUBLIC_URL+'?start=draft'}}]]}});return
     if text.startswith('/start') or text.startswith('/help'):
         await tg('sendMessage',{'chat_id':uid,'text':'Найдите жильё без шума или пришлите сюда текст и фото своего объявления. Бот сохранит черновик — вы только подтвердите карточку.','reply_markup':{'inline_keyboard':[[{'text':'Открыть приложение','web_app':{'url':PUBLIC_URL}}],[{'text':'Сдать жильё','web_app':{'url':PUBLIC_URL+'?start=add'}}]]}})
         return
@@ -837,19 +850,12 @@ async def receive(update):
     if not (m.get('photo') or text or m.get('caption')):return
     rate(uid,'draft',100)
     with db() as c:old=c.execute('SELECT * FROM drafts WHERE uid=?',(uid,)).fetchone()
-    fresh=not old or time.time()-old['updated']>1800
+    fresh=not old
     photos=[] if fresh else json.loads(old['photos']);raw='' if fresh else old['text']
     caption=text or m.get('caption','')
     if caption and caption not in raw:raw=(raw+'\n'+caption).strip()[:12000]
     if m.get('photo') and len(photos)<10:
-        photo=m['photo'][-1]
-        if photo.get('file_size',0)<=10_000_000:
-            f=await tg('getFile',{'file_id':photo['file_id']})
-            async with httpx.AsyncClient(timeout=30) as client:
-                resp=await client.get(f'https://api.telegram.org/file/bot{TOKEN}/'+f['file_path']);resp.raise_for_status()
-            content=resp.content
-            if len(content)<=10_000_000:
-                photos.append(store_photo(content,uid,photo['file_id']))
+        photos.append(store_telegram_photo(m['photo'],uid))
     with db() as c:c.execute('INSERT OR REPLACE INTO drafts VALUES(?,?,?,?)',(uid,raw,dumps(photos),time.time()))
     if fresh:
         await tg('sendMessage',{'chat_id':uid,'text':'Собираю черновик. Добавьте остальные фото, затем откройте карточку. Для следующего объявления: /new','reply_markup':{'inline_keyboard':[[{'text':'Проверить карточку','web_app':{'url':PUBLIC_URL+'?start=draft'}}]]}})
