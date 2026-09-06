@@ -8,7 +8,7 @@ R=Path(__file__).resolve().parents[1];sys.path.insert(0,str(R))
 from fastapi.testclient import TestClient
 from playwright.sync_api import sync_playwright,expect
 import server as s
-from test_server import signed,body
+from test_server import agent_profile, signed,body
 O=R/'test-results';errors=[];requests=[]
 with tempfile.TemporaryDirectory(prefix='rent-mobile-',ignore_cleanup_errors=True) as tmp:
  s.DATA=Path(tmp);s.DB=s.DATA/'db.sqlite3';s.LIVE=True;s.TOKEN='test-token';s.BOT='test_bot';s.PUBLIC_URL='https://rent.test';s.ADMINS={99};s.CHAT='';s.setup()
@@ -18,6 +18,7 @@ with tempfile.TemporaryDirectory(prefix='rent-mobile-',ignore_cleanup_errors=Tru
   payload=body(address=address);payload['listing'].update(phone='+374 (91) 123456',role=role)
   response=client.post('/api/listings',headers=signed(uid),json=payload);assert response.status_code==200,response.text
   return response.json()
+ agent_profile(client,44)
  first=create(42,'Мобильная 10');second=create(43,'Мобильная 20');agent=create(44,'Мобильная 30','agent')
  with sync_playwright() as p:
   b=p.chromium.launch(headless=True,executable_path=os.getenv('CHROMIUM_PATH') or None,args=['--no-sandbox'])
@@ -42,7 +43,8 @@ with tempfile.TemporaryDirectory(prefix='rent-mobile-',ignore_cleanup_errors=Tru
   # Phone-only parsing; precise fields still require manual input.
   page.locator('[data-action=nav][data-id=add]').click()
   text='С 15 числа до мая, цена 600.000. Телефон +374 (91) 123456.'
-  page.locator('#listing-text').fill(text);page.locator('#continue').click()
+  page.evaluate('goStep(3)')
+  page.locator('#listing-text').fill(text)
   assert page.evaluate('state.draft.phone')=='+37491123456'
   assert page.evaluate('state.draft.prices[0].amount')==0 and page.evaluate('state.draft.address')==''
   assert page.evaluate('state.draft.available') is None
@@ -52,7 +54,8 @@ with tempfile.TemporaryDirectory(prefix='rent-mobile-',ignore_cleanup_errors=Tru
   page.locator('#publisher-role').select_option('agent')
   page.screenshot(animations='disabled',path=str(O/'phone-role-390.png'))
   page.locator('#phone-contact').fill('');page.locator('button[form=contact-form]').click();page.wait_for_timeout(120)
-  page.locator('[data-action=edit-text]').click();page.locator('#continue').click()
+  page.locator('#listing-text').fill(text+' Дополнение.')
+  page.evaluate('render()')
   assert page.evaluate('state.draft.phone')=='' and page.evaluate('state.draft.role')=='agent'
   actor(42);open_first()
   page.wait_for_function('document.querySelector(".sheet .view-count")?.textContent.trim()==="1"')

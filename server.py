@@ -52,6 +52,7 @@ def setup():
         c.execute('PRAGMA journal_mode=WAL')
         c.executescript('''
         CREATE TABLE IF NOT EXISTS listing_views(lid TEXT NOT NULL, viewer_key BLOB NOT NULL, PRIMARY KEY(lid,viewer_key)) WITHOUT ROWID;
+        CREATE TABLE IF NOT EXISTS agent_profiles(uid INTEGER PRIMARY KEY, encrypted BLOB NOT NULL, updated REAL NOT NULL);
         CREATE TABLE IF NOT EXISTS users(uid INTEGER PRIMARY KEY, username TEXT, name TEXT, started INTEGER DEFAULT 0);
         CREATE TABLE IF NOT EXISTS listings(id TEXT PRIMARY KEY, uid INTEGER, payload TEXT, status TEXT, created REAL, confirmed REAL, fingerprint TEXT, private BLOB, private_expires REAL, reason TEXT, channel_message INTEGER, channel_kind TEXT, reminded REAL DEFAULT 0, UNIQUE(uid,fingerprint));
         CREATE INDEX IF NOT EXISTS listings_author ON listings(uid,status,created);
@@ -326,7 +327,43 @@ async def health():
     with db() as c:c.execute('SELECT 1')
     return {'ok':True,'mode':'live' if LIVE else 'local','version':'0.5.0'}
 @app.get('/api/me')
-async def me(u=Depends(user)):return {'id':u['id'],'username':u.get('username',''),'first_name':u.get('first_name',''),'is_admin':u['id'] in ADMINS}
+async def me(u=Depends(user)):
+    profile=get_agent_profile(u['id'])
+    return {'id':u['id'],'username':u.get('username',''),'first_name':u.get('first_name',''),'last_name':u.get('last_name',''),'is_admin':u['id'] in ADMINS,'agent_profile_ready':bool(profile),'agent_affiliation':agent_affiliation(profile)}
+class AgentProfileIn(BaseModel):
+    full_name:str=Field(min_length=3,max_length=120)
+    phone:str=Field(min_length=8,max_length=40)
+    independent:bool=False
+    agency:str=Field(default='',max_length=120)
+
+def get_agent_profile(uid):
+    with db() as c:row=c.execute('SELECT encrypted FROM agent_profiles WHERE uid=?',(uid,)).fetchone()
+    return json.loads(CIPHER.decrypt(row['encrypted'])) if row else None
+
+def agent_affiliation(profile):
+    return ('Частный агент' if profile['independent'] else profile['agency']) if profile else ''
+
+@app.get('/api/agent-profile')
+async def my_agent_profile(u=Depends(user)):
+    return get_agent_profile(u['id']) or {}
+
+@app.put('/api/agent-profile')
+async def save_agent_profile(x:AgentProfileIn,u=Depends(user)):
+    rate(u['id'],'agent-profile',20)
+    profile=x.model_dump();profile['full_name']=' '.join(x.full_name.split());profile['phone']=normalize_phone(x.phone)
+    profile['agency']='' if x.independent else x.agency.strip()
+    if len(profile['full_name'].split())<2:raise HTTPException(400,'Укажите имя и фамилию')
+    if not profile['phone']:raise HTTPException(400,'Укажите телефон с кодом страны')
+    if not x.independent and len(profile['agency'])<2:raise HTTPException(400,'Укажите агентство или выберите частного агента')
+    with db() as c:c.execute('INSERT INTO agent_profiles VALUES(?,?,?) ON CONFLICT(uid) DO UPDATE SET encrypted=excluded.encrypted,updated=excluded.updated',(u['id'],CIPHER.encrypt(dumps(profile).encode()),time.time()))
+    return {'ready':True,'affiliation':agent_affiliation(profile)}
+
+@app.get('/api/admin/{lid}/agent-profile')
+async def admin_agent_profile(lid:str,u=Depends(admin_user)):
+    row=getrow(lid);profile=get_agent_profile(row['uid'])
+    if json.loads(row['payload']).get('role')!='agent' or not profile:raise HTTPException(404,'Профиль агента отсутствует')
+    return profile
+
 @app.get('/api/listings')
 async def listings():
     with db() as c:rs=c.execute("SELECT * FROM listings WHERE status='active' ORDER BY created DESC LIMIT 500").fetchall()
@@ -390,6 +427,10 @@ async def submit(s:Submission,u=Depends(user)):
     d['contact']='@'+username if re.fullmatch(r'[A-Za-z0-9_]{5,32}',username) else ''
     d['phone']=phone_from_text(d['description']) if d['phone'] is None else re.sub(r'[ ()\-\u00a0]','',d['phone'])
     if d['phone'] and not re.fullmatch(r'\+[1-9]\d{7,14}',d['phone']):raise HTTPException(400,'Номер нужен в международном формате: +374…')
+    if d['role']=='agent':
+        profile=get_agent_profile(u['id'])
+        if not profile:raise HTTPException(400,'Заполните профиль агента один раз: имя, телефон и агентство')
+        d['agent_affiliation']=agent_affiliation(profile)
     if d['city']=='Ереван' and d['district'] and d['district'] not in {x['name'] for x in json.loads((ROOT/'web/districts.json').read_text(encoding='utf-8'))}:raise HTTPException(400,'Выберите район из списка')
     for price in d['prices']:
         if price.get('amount_max') and price['amount_max']<price['amount']:raise HTTPException(400,'Верхняя цена меньше нижней')
@@ -745,6 +786,7 @@ def public_text(l):
         if l.get(field):lines.append(label+' '+datetime.strptime(l[field],'%Y-%m-%d').strftime('%d.%m.%Y'))
     role={'owner':'Собственник — со слов автора','tenant':'Съезжающий жилец','agent':'Представитель / агент'}.get(l['role'])
     if role:lines.append(role)
+    if l.get('role')=='agent' and l.get('agent_affiliation'):lines.append(l['agent_affiliation'])
     badge={'document_checked':'Документ проверен через e-cadastre; личность не сверена','owner_verified':'Собственник сверён по e-cadastre и личности','representative_verified':'Представитель: документ и полномочия сверены'}.get(l.get('document_status'))
     if badge:lines.append(badge+' · '+str(l.get('document_checked_at',''))[:10])
     if l.get('contract')=='yes':lines.append('Письменный договор: автор согласен')
@@ -884,7 +926,7 @@ async def receive(update):
     if text=='/start photos':
         await tg('sendMessage',{'chat_id':uid,'text':'Пришлите до 10 фотографий альбомом, затем вернитесь к объявлению.','reply_markup':{'inline_keyboard':[[{'text':'Вернуться к объявлению','web_app':{'url':PUBLIC_URL+'?start=draft'}}]]}});return
     if text.startswith('/start') or text.startswith('/help'):
-        await tg('sendMessage',{'chat_id':uid,'text':'Найдите жильё без шума или пришлите сюда текст и фото своего объявления. Бот сохранит черновик — вы только подтвердите карточку.','reply_markup':{'inline_keyboard':[[{'text':'Открыть приложение','web_app':{'url':PUBLIC_URL}}],[{'text':'Сдать жильё','web_app':{'url':PUBLIC_URL+'?start=add'}}]]}})
+        await tg('sendMessage',{'chat_id':uid,'text':'Найдите жильё без шума или пришлите сюда текст и фото своего объявления. Дальше укажите жильё, адрес и цену в приложении.','reply_markup':{'inline_keyboard':[[{'text':'Открыть приложение','web_app':{'url':PUBLIC_URL}}],[{'text':'Сдать жильё','web_app':{'url':PUBLIC_URL+'?start=add'}}]]}})
         return
     if text.startswith('/new'):
         with db() as c:c.execute('DELETE FROM drafts WHERE uid=?',(uid,))

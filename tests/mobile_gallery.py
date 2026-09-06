@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 import server as s
 from test_commission_photos import mock_telegram_files
-from test_server import body, signed
+from test_server import agent_profile, body, signed
 
 OUT = ROOT / 'test-results'
 OUT.mkdir(exist_ok=True)
@@ -46,6 +46,7 @@ with tempfile.TemporaryDirectory(prefix='rent-gallery-', ignore_cleanup_errors=T
         variants=[{'file_id':name,'file_unique_id':name,'width':size[0],'height':size[1]} for name,size in [(f'full{i}',full_size),(f'preview{i}',im.size)]]
         photos.append(s.store_telegram_photo(variants,42))
     mock_telegram_files(patch,contents)
+    agent_profile(client)
     listings = []
     for i in range(6):
         request = body(address=f'Тестовая {i+10}')
@@ -148,8 +149,12 @@ with tempfile.TemporaryDirectory(prefix='rent-gallery-', ignore_cleanup_errors=T
         page.evaluate('tg.colorScheme="dark";applyTheme()')
         page.screenshot(path=str(OUT/'paid-grid-dark-390.png'), animations='disabled')
         page.locator('[data-action=nav][data-id=add]').click()
-        page.locator('#listing-text').fill('Тест подачи через агента. Поля задаём вручную.')
+        page.locator('[data-action=choose-kind][data-id=apartment]').click()
+        page.locator('[data-action=choose-rooms][data-id="2"]').click()
         page.locator('#continue').click()
+        page.locator('#address-input').fill('Подача 88')
+        page.locator('#continue').click()
+        page.locator('#budget-input').fill('300000')
         assert page.evaluate('state.draft.role') == 'agent'
         page.locator('[data-action=edit-commission]').click()
         page.locator('#commission-amount').fill('80000')
@@ -157,14 +162,16 @@ with tempfile.TemporaryDirectory(prefix='rent-gallery-', ignore_cleanup_errors=T
         page.locator('button[form=commission-form]').click()
         page.wait_for_function('!sheetKind')
         assert page.evaluate('state.draft.commission') == 80000
+        page.locator('#continue').click()
+        assert page.locator('#listing-text').input_value()==''
         page.locator('[data-action=edit-contact]').click()
         assert page.locator('#publisher-role option').count() == 1
         page.locator('button[form=contact-form]').click()
         page.wait_for_function('!sheetKind')
-        page.evaluate('Object.assign(state.draft,{address:"Подача 88",kind:"apartment",rooms:2,prices:[{amount:300000,currency:"AMD",period:"month"}]});render()')
         page.locator('[data-action=publish]').click()
         page.wait_for_function('state.screen==="feed" && !state.busy')
         submitted = [x for x in client.get('/api/listings').json() if x['address']=='Подача 88'][0]
+        assert submitted['description']=='' and submitted['phone']==''
         assert submitted['commission'] == 80000 and submitted['commission_type'] == 'fixed' and submitted['role'] == 'agent'
         assert page.evaluate('state.filters.market') == 'paid'
         assert not errors, errors

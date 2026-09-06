@@ -20,6 +20,13 @@ def client(monkeypatch,tmp_path):
 def body(address='Тестовая 12',commission=0,private=None):
     return {'listing':{'address':address,'kind':'apartment','prices':[{'amount':300000,'currency':'AMD','period':'month'}],'rooms':2,'commission':commission,'role':'owner','document_status':'document_checked'},'private':private or {},'consent':True}
 
+def agent_profile(c,uid=42,**fields):
+    profile={'full_name':'Test Agent','phone':'+374 (91) 654321','independent':False,'agency':'Example Realty',**fields}
+    response=c.put('/api/agent-profile',headers=signed(uid),json=profile)
+    assert response.status_code==200,response.text
+    return response.json()
+
+
 def create(c,**kw):
     r=c.post('/api/listings',json=body(**kw),headers=signed());assert r.status_code==200,r.text;return r.json()
 

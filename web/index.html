@@ -463,7 +463,7 @@ svg { width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:1.8;
 .grow { flex:1; min-width:0; }
 .stack { display:grid; gap:16px; }
 .app { width:100%; max-width:480px; min-height:100dvh; margin:0 auto; background:var(--bg); }
-.app-header { position:sticky; top:0; z-index:10; min-height:72px; padding:calc(13px + var(--safe-top)) 18px 12px; display:flex; align-items:center; justify-content:space-between; gap:12px; background:var(--bg); }
+.app-header { position:sticky; top:0; z-index:10; min-height:60px; padding:calc(5px + var(--safe-top)) 12px 5px; display:flex; align-items:center; justify-content:space-between; gap:12px; background:var(--bg); }
 .brand { display:flex; align-items:center; gap:10px; }
 .brand-icon { width:36px; height:36px; border-radius:12px; background:var(--accent); color:var(--on-accent); display:grid; place-items:center; }
 .brand-name { font-size:24px; font-weight:800; line-height:1; letter-spacing:-.8px; }
@@ -471,8 +471,8 @@ svg { width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:1.8;
 .icon-button { display:inline-flex; align-items:center; justify-content:center; width:44px; height:44px; border-radius:50%; flex:none; }
 .header-title { font-size:17px; font-weight:650; flex:1; text-align:center; }
 .header-side { width:44px; flex:none; }
-#main { padding:0 16px calc(102px + var(--safe-bottom)); }
-.filters { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; padding-top:4px; }
+#main { padding:0 12px calc(90px + var(--safe-bottom)); }
+.filters { display:grid; grid-template-columns:1fr 1fr 1fr 44px; gap:6px; padding-top:4px; }
 .filter-chip { border:1px solid var(--border); border-radius:13px; background:var(--surface); min-width:0; padding:10px; display:flex; align-items:center; justify-content:center; gap:5px; font-size:14px; font-weight:560; min-height:48px; }
 .filter-chip svg { width:13px; height:13px; }
 .filter-chip span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -510,8 +510,7 @@ svg { width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:1.8;
 .button { display:flex; align-items:center; justify-content:center; gap:8px; min-height:52px; padding:13px 17px; background:var(--accent); color:var(--on-accent); font-size:16px; font-weight:650; border-radius:14px; width:100%; }
 .button.secondary { color:var(--ink); background:var(--surface); border:1px solid var(--border); }
 .button.quiet { background:var(--tint); color:var(--accent); }
-.dock-action { padding:12px 16px; }
-.compose { padding-top:17px; }
+.dock-action { padding:8px 12px; }
 .intro { color:var(--muted); font-size:15px; margin:9px 0 22px; line-height:1.5; }
 label { display:block; font-size:14px; font-weight:600; margin:0 0 8px; }
 textarea,input:not([type=file]),select { width:100%; min-width:0; font-size:16px; border:1px solid var(--border); border-radius:13px; background:var(--surface); padding:13px; }
@@ -531,13 +530,6 @@ textarea::placeholder,input::placeholder { color:var(--muted); opacity:.8; }
 .photo-preview button svg { width:16px; height:16px; }
 .note { color:var(--muted); font-size:12px; line-height:1.55; margin-top:14px; }
 .error-note { padding:12px; border-radius:12px; background:var(--warn-bg); color:var(--warn); font-size:14px; margin-top:14px; }
-.preview { margin-top:15px; }
-.summary-card { background:var(--surface); border:1px solid var(--border); border-radius:18px; overflow:hidden; }
-.edit-row { display:flex; align-items:center; justify-content:space-between; gap:14px; padding:15px; border-bottom:1px solid var(--border); width:100%; text-align:left; }
-.edit-row:last-child { border-bottom:0; }
-.edit-row small { display:block; color:var(--muted); font-size:12px; margin-bottom:4px; }
-.edit-row strong { display:block; font-size:17px; font-weight:600; overflow-wrap:anywhere; }
-.edit-row svg { width:17px; height:17px; color:var(--muted); }
 .details-text { white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.65; font-size:15px; }
 details { margin-top:16px; border-radius:14px; background:var(--surface); }
 summary { min-height:50px; display:flex; align-items:center; padding:12px 15px; cursor:pointer; list-style:none; font-size:14px; justify-content:space-between; color:var(--muted); }
@@ -623,7 +615,6 @@ details .details-text { padding:0 15px 17px; }
 .listing-title {font-size:13px}.listing-address {font-size:14px;overflow-wrap:anywhere}
 .listing-body {padding:13px}.listing-bottom{margin-top:6px}.listing-photo-link{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:55%;font-size:12px}
 .listing-photo-link svg{width:14px;height:14px}.availability-note{margin-top:8px;font-size:12px}
-.refine-row{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:6px}.refine-row .feed-note{font-size:11px;margin:0}.refine-row .text-button{font-size:12px}
 .trust-box{padding:12px;border-radius:12px;background:var(--tint);margin:14px 0}.trust-box summary{font-size:14px;gap:7px}.trust-box p{margin-top:8px}
 .trust-box summary span{flex:1}.facts{margin:14px 0;display:grid;gap:8px}.facts>div{display:flex;justify-content:space-between;gap:14px;font-size:13px}.facts dt{color:var(--muted)}.facts dd{margin:0;text-align:right;max-width:62%}
 .rate-options{border:1px solid var(--border);border-radius:12px;padding:12px;display:grid;gap:8px;font-size:13px;margin:12px 0}
@@ -735,6 +726,40 @@ details .details-text { padding:0 15px 17px; }
 .gallery-actions {display:flex;gap:9px}.gallery-actions button {flex:1;min-width:0;min-height:45px;padding:10px;font-size:14px}
 .gallery-actions .secondary {background:#2b3d33;color:#fff;border-color:#45584c}
 @media (max-width:359px) {.brand-name {font-size:16px;max-width:155px}.brand-icon {display:none}.compact-grid .listing-main .price {font-size:15px}.compact-grid .card-metrics svg {width:13px;height:13px}}
+
+.catalog-tools { display:flex; gap:3px; align-items:center; }
+.catalog-tools button { width:44px; min-height:44px; padding:0; justify-content:center; }
+.conditions-chip svg { width:20px; height:20px; }
+.results-heading { gap:4px; margin:4px 0; }
+.agent-affiliation { font-size:12px; color:var(--muted); overflow-wrap:anywhere; }
+.submission h1 { font-size:23px; letter-spacing:-.5px; margin:16px 0 20px; }
+.form-progress { display:flex; list-style:none; padding:0; margin:4px 0 0; gap:6px; }
+.form-progress li { flex:1; font-size:12px; color:var(--muted); border-top:3px solid var(--border); padding-top:8px; display:flex; align-items:center; gap:5px; }
+.form-progress .current { border-color:var(--accent); color:var(--accent); font-weight:650; }
+.form-progress .done { border-color:var(--accent); }
+.form-progress span { display:flex; align-items:center; }
+.form-progress svg { width:14px; height:14px; }
+.housing-choices { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.housing-choices button { min-height:64px; font-size:16px; }
+.room-options { border:0; margin:24px 0 0; padding:0; }
+.room-options legend { font-size:14px; font-weight:600; margin-bottom:10px; }
+.room-choices { display:flex; flex-wrap:wrap; gap:8px; }
+.room-choices button { min-width:48px; }
+.submission .field-row { margin-bottom:0; }
+.submission .travel-fields { margin:0; }
+.submission .publisher-field { margin-top:16px; }
+.submission-summary { border:1px solid var(--border); border-radius:14px; background:var(--surface); padding:4px 12px; }
+.submission-summary button { display:flex; align-items:center; gap:8px; width:100%; text-align:left; padding:8px 0; min-height:44px; font-size:14px; overflow-wrap:anywhere; }
+.submission-summary button+button { border-top:1px solid var(--border); }
+.submission-summary button svg { width:15px; height:15px; margin-left:auto; color:var(--muted); }
+.submission-summary small { color:var(--muted); }
+.submission .upload-button { min-height:64px; }
+.description-field { margin-top:16px; }
+.description-field textarea { min-height:120px; }
+.description-field small { color:var(--muted); font-weight:400; }
+.rental-dates .availability-fields { padding:0 12px 12px; }
+.submission .contact-edit { text-align:left; }
+@media(max-width:359px) { .filter-chip { font-size:12px; padding:6px; } .sort-button { font-size:12px; } .catalog-tools { gap:0; } }
 </style>
   <script>
   if (/tgWebApp/.test(location.hash + location.search)) {
@@ -841,6 +866,8 @@ if(typeof module!=='undefined')module.exports=API;else root.RentCore=API;
 const $ = s => document.querySelector(s);
 const C = window.RentCore;
 const paths = {
+  list:'M4 3h16v7H4zM4 14h16v7H4z', grid:'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z',
+  sliders:'M4 7h7M15 7h5M4 17h2M10 17h10M11 4v6M6 14v6',
   info:'M12 17v-5M12 8h.01M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0',
   home:'M3 10l9-7 9 7v10H15v-7H9v7H3z',
   search:'M21 21l-5-5M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0',
@@ -870,13 +897,13 @@ try { stored = JSON.parse(localStorage.getItem(STORE) || '{}'); } catch {}
 let state = {
   screen:'feed', layout:savedLayout, postMarket:stored.postMarket==='paid'?'paid':'free', adminTab:'review', phoneInferred:false, filters:{...baseFilters(),...(stored.filters || {})}, sort:stored.sort || 'new',
   subs:[], own:[],
-  text:'', photos:[], draft:null, telegramPhotos:false,
+  text:'', photos:[], draft:null, formStep:0, phoneTouched:false, telegramPhotos:false,
    channelConfigured:false, paidChannelConfigured:false, related:[], user:null, bot:'', remote:[], queue:[], busy:false, error:'', booted:false,
 };
 let tg = null, sheetKind = '', sheetArg = '', restoreFocus = null, toastTimer;
 let seenDraftPhotos=new Set();
 let photoGallery=null, openingGallery=false, galleryBackPending=false, galleryAfter=null;
-let lastScreen = 'feed', startHandled = false;
+let startHandled = false;
 const uid = () => window.crypto?.randomUUID?.().replaceAll('-','').slice(0,14) || Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 function persist() {
   try {localStorage.setItem(STORE,JSON.stringify({filters:state.filters,sort:state.sort,postMarket:state.postMarket}));} catch {}
@@ -932,7 +959,7 @@ function header() {
   return `<div class="brand"><div class="brand-icon">${icon('home')}</div><div><div class="brand-name">Аренда в Армении</div><div class="brand-caption">${esc(state.filters.city||'Армения')} · ${state.filters.market==='paid'?'агенты':'без комиссии'}</div></div></div><div class="row">${state.user?.is_admin?'<button class="text-button" data-action="open-admin">Админ</button>':''}<button class="icon-button" data-action="nav" data-id="alerts" aria-label="Мои уведомления">${icon('bell')}</button></div>`;
 }
 function dock() {
-  if (state.screen === 'add') return `<div class="dock-action"><button class="button" id="continue" data-action="prepare-listing" ${!state.text.trim()||state.busy?'disabled':''}>${state.busy?'Загружаем фото…':'Продолжить'}</button></div>`;
+  if (state.screen === 'add') return `<div class="dock-action"><button class="button" id="continue" data-action="prepare-listing" ${state.busy||(state.formStep===0&&(!state.draft?.kind||(state.draft.kind==='apartment'&&state.draft.rooms===null)))?'disabled':''}>${state.busy?'Загружаем фото…':'Продолжить'}</button></div>`;
   if (state.screen === 'review') return `<div class="dock-action"><button class="button" data-action="publish" id="publish" ${state.busy?'disabled':''}>${state.busy?'Публикуем…':'Опубликовать'}</button></div>`;
   return `<nav class="nav" aria-label="Основные разделы"><button data-action="nav" data-id="feed" class="${state.screen==='feed'?'active':''}" ${state.screen==='feed'?'aria-current="page"':''}>${icon('search')}<span>Лента</span></button><button data-action="mine" class="mine-nav">${icon('author')}<span>Мои</span></button><button class="add-nav" data-action="nav" data-id="add">${icon('plus')}Сдать</button></nav>`;
 }
@@ -941,19 +968,21 @@ function render() {
   $('#main').innerHTML = state.screen==='feed' ? feed() : state.screen==='alerts' ? alerts() : state.screen==='review' ? review() : state.screen==='admin' ? admin() : compose();
   $('#dock').innerHTML = dock();
   updateBackButton();
+  if($('#city-input'))updateAddressCity();
   if (state.error) $('#main').insertAdjacentHTML('afterbegin',`<div class="error-note">${esc(state.error)}</div>`);
 }
 function navigate(screen, push=true) {
-  clearSheet(false); lastScreen=state.screen; state.screen=screen;
+  if(screen==='add'&&state.draft&&state.formStep===3)screen='review';
+  clearSheet(false); state.screen=screen;
   if(screen==='add'&&!state.text.trim()&&!state.draft)state.postMarket=state.filters.market;
-  if (push) history.pushState({rent:true,screen},'');
+  if (push) history.pushState({rent:true,screen,step:state.formStep},'');
   persist(); render(); window.scrollTo(0,0);
 }
 function feed() {
   const ls=filtered(),f=state.filters,sub=currentSubscription(),budget=f.max?`До ${money(f.max)} ${sym(f.currency)}`:'Бюджет';
-  return `${marketSwitch()}<div class="filters" aria-label="Три фильтра"><button class="filter-chip" data-action="budget"><span>${esc(budget)}</span>${icon('down')}</button><button class="filter-chip" data-action="district"><span>${esc(f.district||(f.city==='Ереван'?'Район':f.city||'Город'))}</span>${icon('down')}</button><button class="filter-chip" data-action="rooms"><span>${esc(housingFilterLabel(f))}</span>${icon('down')}</button></div>
-  <div class="results-heading"><button class="sort-button" data-action="sort">${ls.length} ${plural(ls.length,'вариант','варианта','вариантов')} · ${state.sort==='price'?'дешевле':'новые'} ${icon('down')}</button><button class="follow-button ${sub?.active?'on':''}" data-action="follow" aria-pressed="${!!sub?.active}">${icon(sub?.active?'check':'bell')}${sub?.active?'Уведомления вкл.':'Уведомлять'}</button></div>
-  <div class="refine-row">${layoutSwitch()}<button class="text-button" data-action="conditions-filter">Условия</button></div><div class="list ${state.layout==='grid'?'compact-grid':'album-feed'}">${ls.map(card).join('')||(state.remote.length?empty('Нет подходящих вариантов','Попробуйте другой город или бюджет.','Сбросить фильтры','reset-filters'):empty('Пока нет объявлений','Добавьте жильё или подпишитесь на поиск.','Сдать жильё','nav','add'))}</div>`;
+  return `${marketSwitch()}<div class="filters" aria-label="Фильтры поиска"><button class="filter-chip" data-action="budget"><span>${esc(budget)}</span>${icon('down')}</button><button class="filter-chip" data-action="district"><span>${esc(f.district||(f.city==='Ереван'?'Район':f.city||'Город'))}</span>${icon('down')}</button><button class="filter-chip" data-action="rooms"><span>${esc(housingFilterLabel(f))}</span>${icon('down')}</button><button class="filter-chip conditions-chip" data-action="conditions-filter" aria-label="Условия" title="Условия">${icon('sliders')}</button></div>
+  <div class="results-heading"><button class="sort-button" data-action="sort">${ls.length} ${plural(ls.length,'вариант','варианта','вариантов')} · ${state.sort==='price'?'дешевле':'новые'} ${icon('down')}</button><div class="catalog-tools"><button class="follow-button ${sub?.active?'on':''}" data-action="follow" aria-label="${sub?.active?'Уведомления включены':'Уведомлять о новых вариантах'}" title="Уведомлять" aria-pressed="${!!sub?.active}">${icon(sub?.active?'check':'bell')}</button>${layoutSwitch()}</div></div>
+  <div class="list ${state.layout==='grid'?'compact-grid':'album-feed'}">${ls.map(card).join('')||(state.remote.length?empty('Нет подходящих вариантов','Попробуйте другой город или бюджет.','Сбросить фильтры','reset-filters'):empty('Пока нет объявлений','Добавьте жильё или подпишитесь на поиск.','Сдать жильё','nav','add'))}</div>`;
 }
 function plural(n,a,b,c) { return n%10===1&&n%100!==11?a:n%10>=2&&n%10<=4&&(n%100<12||n%100>14)?b:c; }
 function viewsHTML(l) {
@@ -975,7 +1004,7 @@ function marketSwitch(post=false) {
   return `<div class="market-switch" aria-label="${post?'Условия размещения':'Раздел каталога'}">${[['free','Без комиссии'],['paid','С комиссией · агенты']].map(([key,label])=>`<button data-action="${post?'post-market':'market'}" data-id="${key}" aria-pressed="${market===key}">${label}</button>`).join('')}</div>`;
 }
 function layoutSwitch() {
-  return `<div class="layout-switch" aria-label="Вид каталога">${[['list','Лента'],['grid','Сетка']].map(([key,label])=>`<button data-action="layout" data-id="${key}" aria-pressed="${state.layout===key}">${label}</button>`).join('')}</div>`;
+  return `<div class="layout-switch" aria-label="Вид каталога">${[['list','Лента'],['grid','Сетка']].map(([key,label])=>`<button data-action="layout" data-id="${key}" aria-label="${label}" title="${label}" aria-pressed="${state.layout===key}">${icon(key)}</button>`).join('')}</div>`;
 }
 function commissionLabel(l) {
   if(l.commission===0)return 'Без комиссии';
@@ -983,7 +1012,7 @@ function commissionLabel(l) {
   const fee=l.commission_type==='fixed'?`${money(l.commission)} ${sym(l.commission_currency||'AMD')}`:`${l.commission}% от аренды за ${l.commission_basis==='day'?'сутки':'месяц'}`;
   return 'Агенту '+fee+' · разово';
 }
-function commissionHTML(l) {return `<p class="commission-note ${l.commission>0?'paid-fee':''}">${esc(commissionLabel(l))}</p>`;}
+function commissionHTML(l) {return `${l.role==='agent'&&l.agent_affiliation?`<p class="agent-affiliation">${esc(l.agent_affiliation)}</p>`:''}<p class="commission-note ${l.commission>0?'paid-fee':''}">${esc(commissionLabel(l))}</p>`;}
 function thumbPhoto(p) {return safePhoto(p?.thumb_url)||safePhoto(p);}
 function albumHTML(l,compact=false) {
   const photos=(l.photos||[]).filter(p=>safePhoto(p)).slice(0,10);
@@ -1009,38 +1038,44 @@ function alerts() {
   return `<p class="intro">Новый вариант по вашим условиям — сразу в Telegram.</p>
     ${state.subs.length?`<div class="stack">${state.subs.map(s=>`<div class="subscription">${icon('bell')}<button class="grow" style="text-align:left;padding:0" data-action="open-search" data-id="${esc(s.id)}"><p>${esc(s.name)}</p><small>${s.active?('Новые совпадения сразу'):'На паузе'}</small></button><button class="switch" role="switch" aria-checked="${!!s.active}" aria-label="Уведомлять: ${esc(s.name)}" data-action="toggle-sub" data-id="${esc(s.id)}"></button><button class="icon-button" data-action="delete-sub" data-id="${esc(s.id)}" aria-label="Удалить поиск">${icon('trash')}</button></div>`).join('')}</div>`:empty('Не пропустите новый вариант','Выберите условия в ленте и нажмите «Уведомлять».','К ленте')}`;
 }
-function compose() {
-  return `<section class="compose"><h1>Сдать жильё</h1>${marketSwitch(true)}<p class="intro">Добавьте описание и фото. Цену, адрес и тип жилья укажете на следующем экране.</p>
-    <div class="label-row"><label for="listing-text">Объявление</label></div>
-    <textarea id="listing-text" placeholder="Сдаю двушку на Комитаса, 300 000 драм в месяц. Без комиссии…" maxlength="12000">${esc(state.text)}</textarea>
-    <button class="upload-button" data-action="upload" ${state.busy?'disabled':''}>${icon('photo')}<div><strong>${state.photos.length?'Добавить ещё фото':'Добавить фотографии'}</strong><span>В чате бота · до 10 фото</span></div></button>
-    <div id="photo-previews">${photoPreviews()}</div>
-    <p class="note">Описание сохранится без изменений.<br>Связь с вами — через Telegram.</p></section>`;
+function formProgress() {
+  return `<ol class="form-progress" aria-label="Шаги подачи">${['Жильё','Адрес','Цена','Детали'].map((label,i)=>`<li class="${i===state.formStep?'current':i<state.formStep?'done':''}" ${i===state.formStep?'aria-current="step"':''}><span>${i<state.formStep?icon('check'):i+1}</span>${label}</li>`).join('')}</ol>`;
 }
+function compose() {
+  ensureDraft();const d=state.draft,p=d.prices[0];
+  let body='';
+  if(state.formStep===0)body=`<h1>Что сдаёте?</h1><div class="housing-choices">${[['apartment','Квартира'],['room','Комната'],['house','Дом'],['aparthotel','Апарт-отель']].map(([key,label])=>`<button class="choice ${d.kind===key?'active':''}" data-action="choose-kind" data-id="${key}" aria-pressed="${d.kind===key}">${label}</button>`).join('')}</div>${d.kind==='apartment'?`<fieldset class="room-options"><legend>Количество комнат</legend><div class="room-choices">${[0,1,2,3,4,5,6].map(n=>`<button class="choice ${d.rooms===n?'active':''}" data-action="choose-rooms" data-id="${n}" aria-pressed="${d.rooms===n}">${n===0?'Студия':n}</button>`).join('')}</div></fieldset>`:''}`;
+  if(state.formStep===1)body=`<h1>Где находится жильё?</h1><form id="step-address-form" class="stack">${addressFields(d)}</form>`;
+  if(state.formStep===2)body=`<h1>Сколько стоит аренда?</h1><form id="step-price-form" class="stack"><div><label for="budget-input">Стоимость аренды</label><input class="price-input" id="budget-input" name="amount" type="text" inputmode="numeric" pattern="[0-9 ]*" maxlength="11" value="${esc(p.amount||'')}" placeholder="300 000" required></div><div class="field-row"><div><label for="price-currency">Валюта</label><select id="price-currency" name="currency">${selectOptions([['AMD','Драмы · ֏'],['USD','Доллары · $']],p.currency)}</select></div><div><label for="price-period">За период</label><select id="price-period" name="period">${selectOptions([['month','Месяц'],['day','Сутки']],p.period)}</select></div></div></form>${marketSwitch(true)}${state.postMarket==='paid'?`<button class="commission-edit" data-action="edit-commission">${esc(commissionLabel(d))} ${icon('edit')}</button>`:`<div class="publisher-field"><label for="step-role">Кто размещает</label><select id="step-role" data-field="role">${roleOptions(d)}</select></div>`}${agentProfileButton(d)}`;
+  return `<section class="submission">${formProgress()}${body}</section>`;
+}
+function roleOptions(d) {
+  return selectOptions(state.postMarket==='paid'?[['agent','Агент / риелтор']]:[['unknown','Не указано'],['owner','Собственник'],['tenant','Съезжающий жилец'],['agent','Агент / риелтор']],d.role);
+}
+function agentProfileButton(d) {
+  return d.role==='agent'?`<button class="contact-edit" data-action="agent-profile">${icon('author')}<span>${state.user?.agent_profile_ready?esc(state.user.agent_affiliation):'Заполнить профиль агента'}</span>${icon('edit')}</button>`:'';
+}
+
 function photoPreviews() {
   return state.photos.length?`<div class="photos-row">${state.photos.map((p,i)=>`<div class="photo-preview"><img src="${esc(thumbPhoto(p))}" alt="Фото ${i+1}"><button data-action="remove-photo" data-id="${i}" aria-label="Удалить фото ${i+1}">${icon('close')}</button></div>`).join('')}</div>`:'';
 }
 function review() {
-  const d=state.draft;
-  if (!d) { state.screen='add'; return compose(); }
-  const p=d.prices?.[0];
-  return `<section class="preview"><h1>Данные объявления</h1><p class="intro">Укажите цену, адрес и тип жилья.<br>Описание останется как вы написали.</p>
-    <div class="summary-card">
-      <button class="edit-row" data-action="edit-price"><div><small>Цена</small><strong>${p?.amount?`${p.amount_max?'от ':''}${money(p.amount)} ${esc(sym(p.currency))} / ${unit(p.period)}`:'Укажите цену'}</strong></div>${icon('edit')}</button>
-      <button class="edit-row" data-action="edit-address"><div><small>Адрес</small><strong>${esc(d.address?[d.city,d.address].filter(Boolean).join(' · '):'Укажите улицу или район')}</strong></div>${icon('edit')}</button>
-      <button class="edit-row" data-action="edit-rooms"><div><small>Жильё</small><strong>${esc(d.kind?housing(d):'Выберите тип и комнаты')}</strong></div>${icon('edit')}</button>
-    </div>
-    <button class="commission-edit" data-action="edit-commission">${esc(state.postMarket==='paid'?commissionLabel(d):'Без комиссии')} ${icon('edit')}</button>
-    ${availabilityFields(d)}
+  ensureDraft();const d=state.draft;
+  return `<section class="submission">${formProgress()}<h1>Фото и описание</h1><div class="submission-summary">
+    <button data-action="edit-rooms">${esc(housing(d))} ${icon('edit')}</button>
+    <button data-action="edit-address">${esc([d.city,d.address].filter(Boolean).join(' · '))} ${icon('edit')}</button>
+    <button data-action="edit-price">${priceHTML(d,{})} ${icon('edit')}</button>
+    <button data-action="edit-commission">${esc(commissionLabel(d))} ${icon('edit')}</button>
+    </div><button class="upload-button" data-action="upload" ${state.busy?'disabled':''}>${icon('photo')}<div><strong>${state.photos.length?'Добавить ещё фото':'Добавить фотографии'}</strong><span>В чате бота · до 10 фото</span></div></button>
     <div id="photo-previews">${photoPreviews()}</div>
-    <details><summary>Описание${icon('down')}</summary><p class="details-text">${esc(state.text)}</p></details>
+    <div class="description-field"><label for="listing-text">Что ещё стоит знать? <small>необязательно</small></label><textarea id="listing-text" placeholder="Мебель, техника, коммунальные платежи, особенности жилья…" maxlength="12000">${esc(state.text)}</textarea></div>
+    <details class="rental-dates"><summary>Даты аренды <small>необязательно</small>${icon('down')}</summary>${availabilityFields(d)}</details>
+    <details class="optional-block"><summary>Условия и пожелания <small>необязательно</small>${icon('down')}</summary><div class="stack optional-inner">${optionalFields(d)}</div></details>
     <button class="contact-edit" data-action="edit-contact">${icon('send')} Связь: ${esc(state.user?.username?'@'+state.user.username:'в обсуждении')} ${icon('edit')}</button>
-    ${state.phoneInferred&&d.phone?'<p class="note phone-inferred">Телефон распознан из текста. Проверьте номер; его можно изменить или убрать.</p>':''}
-    <details class="optional-block"><summary>Условия и пожелания <small>необязательно</small>${icon('down')}</summary><div class="stack optional-inner">${optionalFields(d)}<p class="note">Не знаете — оставьте «Не указано». Регистрация проживания и регистрация договора — разные вещи.</p></div></details>
-    <button class="text-button" data-action="edit-text">Изменить текст и фото</button>
-    <p class="note">Публикуя, подтверждаете: предложение актуально, размещение согласовано, условия и комиссия указаны верно.</p>
-    </section>`;
+    <p class="note phone-inferred" ${state.phoneInferred&&d.phone?'':'hidden'}>Телефон распознан из текста. Проверьте номер в контактах.</p>${agentProfileButton(d)}
+    <p class="note">Публикуя, подтверждаете: жильё доступно, размещение согласовано, цена и комиссия указаны верно.</p></section>`;
 }
+
 function showSheet(title, body, footer='', kind='', arg='', className='', push=true) {
   const replacing=!!sheetKind;
   if (!sheetKind) restoreFocus=document.activeElement;
@@ -1048,7 +1083,7 @@ function showSheet(title, body, footer='', kind='', arg='', className='', push=t
   $('#modal-root').innerHTML=`<div class="overlay" data-action="backdrop"><section class="sheet ${className}" role="dialog" aria-modal="true" aria-label="${esc(title)}" tabindex="-1"><header class="sheet-head"><h2>${esc(title)}</h2><button class="icon-button" data-action="close" aria-label="Закрыть">${icon('close')}</button></header><div class="sheet-body">${body}</div><footer class="sheet-footer">${footer}</footer></section></div>`;
   $('#app').inert=true; document.body.style.overflow='hidden';
   $('.sheet').focus({preventScroll:true}); updateBackButton();
-  if (push && !replacing) history.pushState({rent:true,screen:state.screen,sheet:true},'');
+  if (push && !replacing) history.pushState({...history.state,rent:true,screen:state.screen,step:state.formStep,sheet:true},'');
 }
 function clearSheet(focus=true) {
   $('#modal-root').innerHTML=''; sheetKind=''; sheetArg='';
@@ -1062,6 +1097,7 @@ function closeSheet() {
 function back() {
   if(photoGallery){closeGallery();return;}
   if (sheetKind) return closeSheet();
+  if(['add','review'].includes(state.screen)&&state.formStep>0&&!history.state?.flowPrev)return goStep(state.formStep-1,false);
   if (history.state?.rent && state.screen!=='feed' && history.length>1) { history.back(); return; }
   if (state.screen==='review') return navigate('add',false);
   navigate('feed',false);
@@ -1071,7 +1107,7 @@ window.addEventListener('popstate', e=> {
   if(photoGallery){closeGallery();return;}
   const hadSheet=!!sheetKind;
   clearSheet();
-  if (!hadSheet) { state.screen=e.state?.screen||'feed'; render(); }
+  if (!hadSheet) { state.screen=e.state?.screen||'feed'; state.formStep=e.state?.step||0;if(['add','review'].includes(state.screen)&&!state.draft){state.screen='feed';state.formStep=0;history.replaceState({rent:true,screen:'feed'},'');}render(); }
 });
 function selectOptions(options,current) {
   return options.map(([v,t])=>`<option value="${esc(v)}" ${v===current?'selected':''}>${esc(t)}</option>`).join('');
@@ -1131,7 +1167,7 @@ async function detail(id) {
   const l=item(id); if (!l) return toast('Объявление больше недоступно.');
   const media=albumHTML(l);
   const description=l.description||'Автор пока не добавил описание.';
-  showSheet(housing(l),`${media}<div class="card-metrics">${ageHTML(l)}${viewsHTML(l)}</div><div class="price">${priceHTML(l)}</div><p class="meta">${esc([l.city,l.address,l.district].filter(Boolean).join(' · '))}</p>${l.area||l.floor?`<p class="meta">${[l.area?esc(l.area)+' м²':'',l.floor?'Этаж '+esc(l.floor):''].filter(Boolean).join(' · ')}</p>`:''}${commissionHTML(l)}${travelHTML(l)}${conditionsHTML(l)}${publicationLinksHTML(l)}${trustHTML(l)}<details open><summary>Описание${icon('down')}</summary><div class="detail-description details-text">${esc(description)}</div></details>${displayStatus(l)!=='active'?`<div class="error-note">${esc(niceStatus(l))}. Объявление скрыто из ленты.</div>`:''}<p class="note">${esc(exactDate(l)?'Опубликовано '+exactDate(l):'Дата публикации не указана')}</p>${state.user?.is_admin?`<button class="button secondary danger" data-action="ban" data-id="${esc(l.id)}">Заблокировать с причиной</button>`:''}<button class="text-button" data-action="report" data-id="${esc(l.id)}">Пожаловаться</button>`,
+  showSheet(housing(l),`${media}<div class="card-metrics">${ageHTML(l)}${viewsHTML(l)}</div><div class="price">${priceHTML(l)}</div><p class="meta">${esc([l.city,l.address,l.district].filter(Boolean).join(' · '))}</p>${l.area||l.floor?`<p class="meta">${[l.area?esc(l.area)+' м²':'',l.floor?'Этаж '+esc(l.floor):''].filter(Boolean).join(' · ')}</p>`:''}${commissionHTML(l)}${travelHTML(l)}${conditionsHTML(l)}${publicationLinksHTML(l)}${trustHTML(l)}<details open><summary>Описание${icon('down')}</summary><div class="detail-description details-text">${esc(description)}</div></details>${displayStatus(l)!=='active'?`<div class="error-note">${esc(niceStatus(l))}. Объявление скрыто из ленты.</div>`:''}<p class="note">${esc(exactDate(l)?'Опубликовано '+exactDate(l):'Дата публикации не указана')}</p>${adminAgentButton(l)}${state.user?.is_admin?`<button class="button secondary danger" data-action="ban" data-id="${esc(l.id)}">Заблокировать с причиной</button>`:''}<button class="text-button" data-action="report" data-id="${esc(l.id)}">Пожаловаться</button>`,
     `<button class="button" data-action="contact" data-id="${esc(l.id)}" ${displayStatus(l)!=='active'?'disabled':''}>${icon('send')}Связаться</button>`,'detail',id,'detail-sheet');
   void recordView(l);
 }
@@ -1143,7 +1179,7 @@ async function refreshAdmin() {
 }
 function admin() {
   if (!state.user?.is_admin) return empty('Доступ только админу','Модерация не входит в обычный интерфейс.','К ленте');
-  return `<h1>Объявления</h1><div class="admin-tabs">${[['review','Проверка'],['all','Все'],['banned','Баны']].map(([k,t])=>`<button class="choice ${state.adminTab===k?'active':''}" data-action="admin-tab" data-id="${k}" aria-pressed="${state.adminTab===k}">${t}</button>`).join('')}</div><div class="stack">${state.queue.map(l=>`<article class="my-row" data-admin-id="${esc(l.id)}"><h3>${esc(l.city)} · ${esc(l.address)}</h3><p>${priceHTML(l,{})}</p><p class="listing-status status-${esc(l.status)}">${esc(niceStatus(l))}</p>${l.ban_reason||l.review_reason?`<div class="moderation-reason">${esc(l.ban_reason||l.review_reason)}</div>`:''}<details><summary>Описание ${icon('down')}</summary><p class="details-text">${esc(l.description)}</p></details>${l.document_status==='pending'?`<button class="button secondary" data-action="review-doc" data-id="${esc(l.id)}">Проверить документ</button>`:''}<div class="moderation-actions">${l.status==='banned'?`<button class="button secondary" data-action="unban" data-id="${esc(l.id)}">Снять блокировку</button>`:`${['review','rejected'].includes(l.status)?`<button class="button" data-action="approve" data-id="${esc(l.id)}">Одобрить</button>`:''}<button class="button secondary danger" data-action="ban" data-id="${esc(l.id)}">Заблокировать с причиной</button>`}</div></article>`).join('')||'<p class="note">Объявлений в этом разделе нет.</p>'}</div>`;
+  return `<h1>Объявления</h1><div class="admin-tabs">${[['review','Проверка'],['all','Все'],['banned','Баны']].map(([k,t])=>`<button class="choice ${state.adminTab===k?'active':''}" data-action="admin-tab" data-id="${k}" aria-pressed="${state.adminTab===k}">${t}</button>`).join('')}</div><div class="stack">${state.queue.map(l=>`<article class="my-row" data-admin-id="${esc(l.id)}"><h3>${esc(l.city)} · ${esc(l.address)}</h3><p>${priceHTML(l,{})}</p><p class="listing-status status-${esc(l.status)}">${esc(niceStatus(l))}</p>${l.ban_reason||l.review_reason?`<div class="moderation-reason">${esc(l.ban_reason||l.review_reason)}</div>`:''}<details><summary>Описание ${icon('down')}</summary><p class="details-text">${esc(l.description)}</p></details>${l.document_status==='pending'?`<button class="button secondary" data-action="review-doc" data-id="${esc(l.id)}">Проверить документ</button>`:''}${adminAgentButton(l)}<div class="moderation-actions">${l.status==='banned'?`<button class="button secondary" data-action="unban" data-id="${esc(l.id)}">Снять блокировку</button>`:`${['review','rejected'].includes(l.status)?`<button class="button" data-action="approve" data-id="${esc(l.id)}">Одобрить</button>`:''}<button class="button secondary danger" data-action="ban" data-id="${esc(l.id)}">Заблокировать с причиной</button>`}</div></article>`).join('')||'<p class="note">Объявлений в этом разделе нет.</p>'}</div>`;
 }
 function banSheet(id) {
   if(!state.user?.is_admin)return;
@@ -1192,31 +1228,61 @@ async function toggleSub(id) {
   await api('/api/subscriptions/'+id,'PATCH',{active});
   s.active=active; persist(); render();
 }
-function prepareListing() {
-  if (state.busy || !state.text.trim()) return;
-  if(!state.draft)state.draft={address:'',city:state.filters.city||'Ереван',district:'',kind:'',rooms:null,
+function ensureDraft() {
+  if(state.draft)return;
+  state.formStep=0;state.phoneTouched=false;
+  state.draft={address:'',city:state.filters.city||'Ереван',district:'',kind:'',rooms:null,
     prices:[{amount:0,currency:'AMD',period:'month'}],available:null,available_until:null,
     commission:state.postMarket==='paid'?null:0,commission_type:'percent',commission_currency:'AMD',commission_basis:'month',contact:'',phone:C.phoneFromText(state.text),role:state.postMarket==='paid'?'agent':'unknown',pets:'unknown',deposit:null,
     contract:'unknown',residence_registration:'unknown',lease_registration:'unknown',wishes:''};
-  state.phoneInferred=!!state.draft.phone&&state.draft.phone===C.phoneFromText(state.text);
-  navigate('review');
+  state.phoneInferred=!!state.draft.phone;
 }
+function captureStep() {
+  const d=state.draft;if(!d)return;
+  const address=$('#step-address-form');
+  if(address){const x=Object.fromEntries(new FormData(address)),city=(x.city==='other'?x.custom_city:x.city).trim();Object.assign(d,{address:x.address,city,district:city==='Ереван'?x.district:'',metro_walk_minutes:city==='Ереван'&&x.metro_walk_minutes?Number(x.metro_walk_minutes):null,center_drive_minutes:x.center_drive_minutes?Number(x.center_drive_minutes):null});}
+  const price=$('#step-price-form');
+  if(price){const x=Object.fromEntries(new FormData(price));d.prices[0]={amount:Number(x.amount.replace(/\s/g,'')),currency:x.currency,period:x.period};}
+}
+function goStep(step,push=true) {
+  captureStep();const fromForm=['add','review'].includes(state.screen);
+  state.formStep=step;navigate(step===3?'review':'add',false);
+  history[push?'pushState':'replaceState']({rent:true,screen:state.screen,step,flowPrev:push&&fromForm},'');
+}
+async function prepareListing() {
+  if(state.busy)return;
+  ensureDraft();captureStep();const d=state.draft;
+  if(state.formStep===0&&(!d.kind||(d.kind==='apartment'&&d.rooms===null)))return;
+  if(state.formStep===1){
+    if(!$('#step-address-form').reportValidity())return;
+    if(d.kind!=='house'&&!/\d/.test(d.address))return toast('Добавьте номер дома. Номер квартиры не нужен.');
+  }
+  if(state.formStep===2){
+    if(!$('#step-price-form').reportValidity())return;
+    if(!Number.isFinite(d.prices[0].amount)||d.prices[0].amount<=0||d.prices[0].amount>1e9)return toast('Укажите корректную цену.');
+    if(state.postMarket==='paid'&&!(d.commission>0))return commissionSheet();
+    if(d.role==='agent'&&!state.user?.agent_profile_ready)return agentProfileSheet();
+  }
+  goStep(state.formStep+1);
+}
+
 async function publish() {
   if (state.busy || !requireUser()) return;
   const d=state.draft; if (!d) return;
 
+  if(d.role==='agent'&&!state.user?.agent_profile_ready){await agentProfileSheet();return;}
   if(state.postMarket==='paid'&&(!(d.commission>0)||d.role!=='agent')){commissionSheet();return;}
   if (!d.prices[0].amount) { budgetSheet(true); return; }
   if (!d.address || d.address.trim().length<3) { editAddress(); return; }
   if(d.kind!=='house'&&!/\d/.test(d.address)){editAddress();toast('Добавьте номер дома. Номер квартиры не нужен.');return;}
   if(!d.kind||(d.kind==='apartment'&&d.rooms==null)){roomsSheet(true);return;}
   const dateError=availabilityError(d);
-  if(dateError){toast(dateError);$('#available-until').focus();return;}
+  if(dateError){toast(dateError);$('.rental-dates').open=true;$('#available-until').focus();return;}
   state.busy=true; $('#dock').innerHTML=dock();
   try {
     const payload={...d,description:state.text,photos:state.photos.map(p=>({id:p.id})),contact:d.contact||(state.user?.username?'@'+state.user.username:''),phone:d.phone||'',photo_count:state.photos.length};
     const l=await api('/api/listings','POST',{listing:payload,private:{},consent:true});await refresh();
-    state.text=''; state.photos=[]; state.draft=null; state.busy=false;state.telegramPhotos=false;seenDraftPhotos.clear();
+    state.text=''; state.photos=[]; state.draft=null; state.formStep=0;state.phoneTouched=false; state.busy=false;state.telegramPhotos=false;seenDraftPhotos.clear();
     try {localStorage.removeItem(STORE+'-draft-'+state.user.id);} catch {}
     state.filters={...baseFilters(),currency:l.prices[0].currency,period:l.prices[0].period,city:l.city,market:l.commission>0?'paid':'free'};
     persist(); navigate('feed');
@@ -1224,9 +1290,12 @@ async function publish() {
   } finally { state.busy=false; $('#dock').innerHTML=dock(); }
 }
 function editAddress() {
-  const d=state.draft, known=C.CITIES.includes(d.city||'Ереван');
-  showSheet('Адрес',`<form id="address-form" class="stack"><div><label for="address-input">Улица и номер дома</label><input id="address-input" name="address" value="${esc(d.address)}" autocomplete="street-address" maxlength="180" minlength="3" required></div><div><label for="city-input">Город</label><select id="city-input" name="city">${selectOptions([...C.CITIES.map(c=>[c,c]),['other','Другой город / населённый пункт']],known?d.city||'Ереван':'other')}</select></div><div id="custom-city-row" ${known?'hidden':''}><label for="custom-city">Название населённого пункта</label><input id="custom-city" name="custom_city" value="${known?'':esc(d.city)}" maxlength="80" ${known?'':'required'}></div><div id="district-row"><label for="district-input">Район Еревана</label><select id="district-input" name="district">${selectOptions([['','Уточняется'],...C.DISTRICTS.map(x=>[x.name,x.name])],d.district||'')}</select></div><details class="travel-fields"><summary>Время в пути <small>необязательно</small>${icon('down')}</summary><div class="stack optional-inner"><div id="metro-row"><label for="metro-minutes">До метро пешком, мин</label><input id="metro-minutes" name="metro_walk_minutes" type="number" inputmode="numeric" min="1" max="180" step="1" placeholder="Например, 10" value="${esc(d.metro_walk_minutes??'')}"></div><div><label for="center-minutes">До центра этого города на машине, мин</label><input id="center-minutes" name="center_drive_minutes" type="number" inputmode="numeric" min="1" max="360" step="1" placeholder="Например, 15" value="${esc(d.center_drive_minutes??'')}"></div><p class="note">Примерно, по вашей оценке. Время на машине зависит от пробок. Не знаете — оставьте пустым.</p></div></details><p class="note">Номер квартиры не нужен. Для частного дома номер дома можно не указывать. Район Еревана можно оставить «Уточняется».</p></form>`,`<button class="button" type="submit" form="address-form">Готово</button>`,'edit-address');
+  showSheet('Адрес',`<form id="address-form" class="stack">${addressFields(state.draft)}</form>`,`<button class="button" type="submit" form="address-form">Готово</button>`,'edit-address');
   updateAddressCity();
+}
+function addressFields(d) {
+  const known=C.CITIES.includes(d.city||'Ереван');
+  return `<div><label for="city-input">Город</label><select id="city-input" name="city">${selectOptions([...C.CITIES.map(c=>[c,c]),['other','Другой город / населённый пункт']],known?d.city||'Ереван':'other')}</select></div><div id="custom-city-row" ${known?'hidden':''}><label for="custom-city">Название населённого пункта</label><input id="custom-city" name="custom_city" value="${known?'':esc(d.city)}" maxlength="80" ${known?'':'required'}></div><div><label for="address-input">Улица и номер дома</label><input id="address-input" name="address" value="${esc(d.address)}" autocomplete="street-address" maxlength="180" minlength="3" required></div><details class="travel-fields"><summary>Район и время в пути <small>необязательно</small>${icon('down')}</summary><div class="stack optional-inner"><div id="district-row"><label for="district-input">Район Еревана</label><select id="district-input" name="district">${selectOptions([['','Уточняется'],...C.DISTRICTS.map(x=>[x.name,x.name])],d.district||'')}</select></div><div id="metro-row"><label for="metro-minutes">До метро пешком, мин</label><input id="metro-minutes" name="metro_walk_minutes" type="number" inputmode="numeric" min="1" max="180" step="1" placeholder="Например, 10" value="${esc(d.metro_walk_minutes??'')}"></div><div><label for="center-minutes">До центра этого города на машине, мин</label><input id="center-minutes" name="center_drive_minutes" type="number" inputmode="numeric" min="1" max="360" step="1" placeholder="Например, 15" value="${esc(d.center_drive_minutes??'')}"></div><p class="note">Примерно, по вашей оценке. Время на машине зависит от пробок. Не знаете — оставьте пустым.</p></div></details><p class="note">Укажите улицу и номер дома, без квартиры. Для частного дома номер необязателен.</p>`;
 }
 function updateAddressCity(clear=false) {
   const city=$('#city-input').value, yerevan=city==='Ереван', other=city==='other';
@@ -1242,10 +1311,11 @@ function travelHTML(l) {
   return parts.length?`<p class="travel-note">${parts.map(esc).join('<br>')}<small>Оценка автора · на машине зависит от пробок</small></p>`:'';
 }
 async function addPhotos() {
+  captureStep();
   if(state.busy||!requireUser())return;
   if(!state.bot)return toast('Чат бота пока недоступен.');
   if(state.photos.length>=10)return toast('Можно добавить до 10 фотографий.');
-  try {localStorage.setItem(STORE+'-draft-'+state.user.id,JSON.stringify({draft:state.draft,postMarket:state.postMarket,at:Date.now()}));}
+  try {localStorage.setItem(STORE+'-draft-'+state.user.id,JSON.stringify({draft:state.draft,postMarket:state.postMarket,formStep:state.formStep,phoneTouched:state.phoneTouched,at:Date.now()}));}
   catch {return toast('Не удалось сохранить форму. Разрешите хранилище приложения.');}
   state.busy=true;
   try {
@@ -1255,7 +1325,7 @@ async function addPhotos() {
 }
 async function syncDraft(replaceText=false) {
   const d=await api('/api/draft'),photos=d.photos||[];
-  if(replaceText){state.text=d.text||'';state.photos=photos;seenDraftPhotos=new Set();}
+  if(replaceText){state.text=d.text||'';state.photos=photos;seenDraftPhotos=new Set();if(state.draft&&!state.phoneTouched){state.draft.phone=C.phoneFromText(state.text);state.phoneInferred=!!state.draft.phone;}}
   else state.photos=[...state.photos,...photos.filter(p=>!seenDraftPhotos.has(p.id))].slice(0,10);
   for(const p of photos)seenDraftPhotos.add(p.id);
   state.telegramPhotos=true;
@@ -1265,7 +1335,7 @@ function restoreDraft() {
   if(!state.user)return;
   try {
     const key=STORE+'-draft-'+state.user.id,saved=JSON.parse(localStorage.getItem(key)||'null');
-    if(saved&&Date.now()-saved.at<7*86400000){state.draft=saved.draft;state.postMarket=saved.postMarket;}
+    if(saved&&Date.now()-saved.at<7*86400000){state.draft=saved.draft;state.postMarket=saved.postMarket;state.formStep=saved.formStep||0;state.phoneTouched=!!saved.phoneTouched;}
   } catch {}
 }
 function safeOpen(url) {
@@ -1277,10 +1347,15 @@ function safeOpen(url) {
   } catch { toast('Ссылка недоступна.'); }
 }
 async function action(a,id,el) {
+  captureStep();
+  if(a==='choose-kind'){if(state.draft.kind===id)return;state.draft.kind=id;state.draft.rooms=null;render();return;}
+  if(a==='choose-rooms'){state.draft.rooms=Number(id);render();return;}
+  if(a==='agent-profile')return agentProfileSheet();
+  if(a==='admin-agent')return adminAgentProfile(id);
   if(a==='gallery')return openGallery(id,Number(el.dataset.photoIndex)||0,el);
   if(a==='layout'){const anchor=[...document.querySelectorAll('.listing')].find(x=>x.getBoundingClientRect().bottom>100),offset=anchor?.getBoundingClientRect().top;state.layout=id==='grid'?'grid':'list';try{localStorage.setItem(STORE+'-layout',state.layout);}catch{}render();if(anchor){const next=[...document.querySelectorAll('.listing')].find(x=>x.dataset.listing===anchor.dataset.listing);if(next)window.scrollBy(0,next.getBoundingClientRect().top-offset);}return;}
   if(a==='market'){state.filters.market=id==='paid'?'paid':'free';state.filters.owner=false;persist();render();window.scrollTo(0,0);return;}
-  if(a==='post-market'){state.postMarket=id==='paid'?'paid':'free';if(state.draft){state.draft.commission=state.postMarket==='paid'?null:0;if(state.postMarket==='paid')state.draft.role='agent';}if(sheetKind==='commission')commissionSheet();persist();render();return;}
+  if(a==='post-market'){if(id===state.postMarket)return;state.postMarket=id==='paid'?'paid':'free';if(state.draft){state.draft.commission=state.postMarket==='paid'?null:0;if(state.postMarket==='paid')state.draft.role='agent';}if(sheetKind==='commission')commissionSheet();persist();render();return;}
   if(a==='edit-commission')return commissionSheet();
   if (a==='conditions-filter') return filterConditions();
   if (a==='edit-contact') return editContact();
@@ -1322,7 +1397,6 @@ async function action(a,id,el) {
   }
   if (a==='open-search') { state.filters={...baseFilters(),...state.subs.find(s=>s.id===id).filters}; navigate('feed'); return; }
   if (a==='prepare-listing') return prepareListing();
-  if (a==='edit-text') return navigate('add');
   if (a==='edit-price') return budgetSheet(true);
   if (a==='edit-address') return editAddress();
   if (a==='edit-rooms') return roomsSheet(true);
@@ -1349,10 +1423,14 @@ document.addEventListener('click',e=>{
 document.addEventListener('input',e=>{
   if(e.target.dataset.field&&state.draft)state.draft[e.target.dataset.field]=e.target.type==='date'?(e.target.value||null):e.target.value;
   if(['available-from','available-until'].includes(e.target.id))updateAvailability();
-  if(e.target.id==='listing-text') { state.text=e.target.value; persist(); const b=$('#continue'); if(b)b.disabled=!state.text.trim()||state.busy; }
+  if(e.target.id==='listing-text') {state.text=e.target.value;if(!state.phoneTouched){state.draft.phone=C.phoneFromText(state.text);state.phoneInferred=!!state.draft.phone;const note=$('.phone-inferred');if(note)note.hidden=!state.phoneInferred;}persist();}
+  captureStep();
 });
 document.addEventListener('change',e=>{
   if(e.target.id==='city-input')updateAddressCity(true);
+  if(e.target.id==='agent-work'){const independent=e.target.value==='independent';$('#agency-row').hidden=independent;$('#agent-agency').required=!independent;}
+  captureStep();
+  if(e.target.id==='step-role') {state.draft.role=e.target.value;render();}
   if(e.target.id==='filter-city'){state.filters.city=e.target.value;state.filters.district='';closeSheet();persist();render();}
   if(e.target.dataset.field&&state.draft)state.draft[e.target.dataset.field]=e.target.type==='date'?(e.target.value||null):e.target.value;
   if(['available-from','available-until'].includes(e.target.id))updateAvailability();
@@ -1363,9 +1441,11 @@ document.addEventListener('change',e=>{
     $('#budget-presets').innerHTML=choices.map(n=>`<button class="choice" type="button" data-action="preset" data-id="${n}">${money(n)}</button>`).join('')+'<button class="choice" type="button" data-action="preset" data-id="">Любая</button>';
   }
 });
+document.addEventListener('invalid',e=>{for(let el=e.target.parentElement;el;el=el.parentElement)if(el.tagName==='DETAILS')el.open=true;},true);
 document.addEventListener('submit',e=>{
   e.preventDefault(); const x=Object.fromEntries(new FormData(e.target));
-  if(['verification-form','verification-decision','contact-form','filter-conditions','ban-form','commission-form'].includes(e.target.id)){handleExtraForm(e.target,x).catch(err=>toast(err.message));return;}
+  if(['step-address-form','step-price-form'].includes(e.target.id)){prepareListing().catch(err=>toast(err.message));return;}
+  if(['verification-form','verification-decision','contact-form','filter-conditions','ban-form','commission-form','agent-profile-form'].includes(e.target.id)){handleExtraForm(e.target,x).catch(err=>toast(err.message));return;}
   if(e.target.id==='budget-form'||e.target.id==='edit-price-form') {
     const amount=Number(String(x.amount).replace(/\s/g,''));
     if (!Number.isFinite(amount)||amount<0||amount>1e9) return toast('Укажите корректную сумму.');
@@ -1437,7 +1517,7 @@ async function startRoute() {
   if(p.startsWith('l_')) { detail(p.slice(2)); return; }
   if(['add','draft'].includes(p)) {
     if(state.user&&p==='draft') {restoreDraft();await syncDraft(true);}
-    navigate(state.draft?'review':'add',false);
+    goStep(state.draft?state.formStep:0,false);
   }
   if(p==='admin' && state.user?.is_admin) { state.queue=await api('/api/admin/queue'); navigate('admin',false); }
 }
@@ -1542,9 +1622,23 @@ function filterConditions() {
   const f=state.filters;
   showSheet('Только когда это важно',`<form id="filter-conditions" class="stack">${[['contract','Готовы подписать договор'],['residence_registration','Возможна регистрация проживания'],['verified','Личность и право сверены']].map(([k,t])=>`<label class="check-row"><input type="checkbox" name="${k}" ${f[k]?'checked':''}><span>${t}</span></label>`).join('')}<p class="note">Регистрация по договорённости тоже попадает в поиск. Проверьте её условия и цену в карточке. Пустое поле не считается согласием.</p></form>`,`<button type="submit" form="filter-conditions" class="button">Показать варианты</button>`,'conditions-filter');
 }
+async function agentProfileSheet() {
+  if(!requireUser())return;
+  const x=await api('/api/agent-profile');
+  showSheet('Профиль агента',`<form id="agent-profile-form" class="stack"><p class="note">Заполняется один раз. Имя и телефон доступны только вам и администратору. В объявлении видно агентство или «Частный агент».</p><div><label for="agent-name">Имя и фамилия</label><input id="agent-name" name="full_name" value="${esc(x.full_name||[state.user.first_name,state.user.last_name].filter(Boolean).join(' '))}" autocomplete="name" minlength="3" maxlength="120" required></div><div><label for="agent-phone">Телефон для проверки</label><input id="agent-phone" name="phone" type="tel" autocomplete="tel" value="${esc(x.phone||state.draft?.phone||'')}" maxlength="40" placeholder="+374…" required></div><div><label for="agent-work">Как работаете</label><select id="agent-work" name="work">${selectOptions([['agency','В агентстве'],['independent','Частный агент']],x.independent?'independent':'agency')}</select></div><div id="agency-row" ${x.independent?'hidden':''}><label for="agent-agency">Название агентства</label><input id="agent-agency" name="agency" value="${esc(x.agency||'')}" minlength="2" maxlength="120" ${x.independent?'':'required'}></div></form>`,`<button class="button" form="agent-profile-form" type="submit">Сохранить профиль</button>`,'agent-profile');
+}
+function adminAgentButton(l) {
+  return state.user?.is_admin&&l.role==='agent'&&l.agent_affiliation?`<button class="text-button" data-action="admin-agent" data-id="${esc(l.id)}">Данные агента</button>`:'';
+}
+async function adminAgentProfile(id) {
+  if(!state.user?.is_admin)return;
+  const x=await api('/api/admin/'+encodeURIComponent(id)+'/agent-profile');
+  showSheet('Данные агента',`<div class="stack"><p>${esc(x.full_name)}</p><p>${esc(x.phone)}</p><p>${esc(x.independent?'Частный агент':x.agency)}</p><p class="note">Данные сообщил агент. Заполнение профиля не подтверждает личность.</p></div>`,'','admin-agent',id);
+}
+
 function editContact() {
   const d=state.draft;
-  showSheet('Контакт автора',`<form id="contact-form" class="stack"><div><label for="publisher-role">Кто размещает</label><select id="publisher-role" name="role">${selectOptions(state.postMarket==='paid'?[['agent','Агент / риелтор']]:[['unknown','Не указано'],['owner','Собственник'],['tenant','Съезжающий жилец'],['agent','Агент / риелтор']],d.role)}</select></div><p>${state.user?.username?'Telegram: @'+esc(state.user.username):'Без username связь доступна только в обсуждении публикации.'}</p><div><label for="phone-contact">Телефон — необязательно</label><input id="phone-contact" type="tel" name="phone" value="${esc(d.phone||'')}" maxlength="40"></div></form>`,`<button class="button" type="submit" form="contact-form">Готово</button>`,'contact-edit');
+  showSheet('Контакт автора',`<form id="contact-form" class="stack"><div><label for="publisher-role">Кто размещает</label><select id="publisher-role" name="role">${roleOptions(d)}</select></div><p>${state.user?.username?'Telegram: @'+esc(state.user.username):'Без username связь доступна только в обсуждении публикации.'}</p><div><label for="phone-contact">Телефон — необязательно</label><input id="phone-contact" type="tel" name="phone" value="${esc(d.phone||'')}" maxlength="40"></div></form>`,`<button class="button" type="submit" form="contact-form">Готово</button>`,'contact-edit');
 }
 async function contactSheet(id) {
   const l=await api('/api/listings/'+encodeURIComponent(id));if(l.status!=='active')return toast('Объявление снято.');
@@ -1565,6 +1659,11 @@ async function reviewDocument(id) {
   showSheet('Проверка администратором',`<form id="verification-decision" data-listing="${esc(id)}" class="stack"><p class="note">Откройте официальный сайт, введите реквизиты и сверьте результат. Автоматической проверки и обхода капчи нет.</p><div><label>Имя заявителя</label><input readonly value="${esc(x.applicant_name||'Не указано')}"></div><div><label>Номер документа</label><input readonly value="${esc(x.document_number)}"></div><div><label>Пароль просмотра</label><input readonly value="${esc(x.document_password)}" autocomplete="off"></div><button type="button" class="button secondary" data-action="official">Открыть официальный e-cadastre ↗</button>${[['document_valid','На официальном сайте документ подлинный и действительный'],['object_matches','Адрес и объект совпадают с объявлением'],['identity_matches','Личность заявителя сверена отдельно, не по Telegram-имени'],['rights_current','Сведения о праве актуальны на дату проверки'],['authority_checked','Для представителя: полномочия отдельно сверены']].map(([k,t])=>`<label class="check-row"><input name="${k}" type="checkbox"><span>${t}</span></label>`).join('')}<div><label for="checked-date">Дата сверки сведений</label><input id="checked-date" type="date" name="checked_on" value="${today}" required></div><div><label for="verification-result">Результат</label><select name="result" id="verification-result">${selectOptions([['document_checked','Документ и объект проверены'],['owner_verified','Собственник: документ + личность + право'],['representative_verified','Представитель: дополнительно полномочия'],['not_confirmed','Не подтверждено']],'document_checked')}</select></div><p class="note">Положительное решение удалит реквизиты. Публично останутся метод, дата и перечень выполненных проверок.</p></form>`,`<button class="button" type="submit" form="verification-decision">Сохранить результат</button>`,'review-doc',id);
 }
 async function handleExtraForm(form,x) {
+  if(form.id==='agent-profile-form'){
+    const button=$('button[form="agent-profile-form"]');button.disabled=true;
+    try {const result=await api('/api/agent-profile','PUT',{full_name:x.full_name,phone:x.phone,independent:x.work==='independent',agency:x.agency});state.user.agent_profile_ready=result.ready;state.user.agent_affiliation=result.affiliation;closeSheet();render();}
+    finally {if(button.isConnected)button.disabled=false;}return;
+  }
   if(form.id==='commission-form'){const amount=Number(x.amount),fixed=['AMD','USD'].includes(x.fee_unit);if(!Number.isInteger(amount)||amount<=0||amount>(fixed?1000000000:100))return toast('Укажите корректную комиссию.');Object.assign(state.draft,{commission:amount,commission_type:fixed?'fixed':'percent',commission_currency:fixed?x.fee_unit:'AMD',commission_basis:x.fee_unit==='percent_day'?'day':'month',role:'agent'});state.postMarket='paid';closeSheet();render();return;}
 
   if(form.id==='filter-conditions'){
@@ -1573,7 +1672,7 @@ async function handleExtraForm(form,x) {
   if(form.id==='contact-form'){
     x.phone=x.phone.replace(/[ ()\-\u00a0]/g,'');
     if(x.phone&&!/^\+[1-9]\d{7,14}$/.test(x.phone))return toast('Введите телефон с кодом страны: +374…');
-    Object.assign(state.draft,x);state.phoneInferred=false;closeSheet();render();return;
+    Object.assign(state.draft,x);state.phoneInferred=false;state.phoneTouched=true;closeSheet();render();return;
   }
   const lid=form.dataset.listing,button=$(`button[form="${form.id}"]`);if(button)button.disabled=true;
   try {

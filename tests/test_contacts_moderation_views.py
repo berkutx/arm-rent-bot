@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import pytest
 import server as s
-from test_server import client,body,signed,create
+from test_server import agent_profile, client,body,signed,create
 
 CASES=json.loads((Path(__file__).parent/'phone_cases.json').read_text(encoding='utf-8-sig'))
 @pytest.mark.parametrize('text,expected',CASES)
@@ -30,6 +30,7 @@ def test_phone_autofill_preserves_description_and_manual_choice(client):
 
 
 def test_phone_matches_are_distinct_from_author_and_exclude_agents(client):
+    agent_profile(client,44)
     first=post(client,phone='+374 (91) 123456')
     match=post(client,address='Тестовая 2',uid=43,phone='+37491123456')
     agent=post(client,address='Тестовая 3',uid=44,role='agent',commission=0,phone='+37491123456')

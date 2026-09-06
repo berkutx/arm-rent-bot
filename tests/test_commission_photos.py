@@ -5,7 +5,7 @@ import pytest
 import httpx
 
 import server as s
-from test_server import body, client, signed
+from test_server import agent_profile, body, client, signed
 
 
 @pytest.mark.parametrize('role', ['owner', 'tenant', 'unknown'])
@@ -17,6 +17,7 @@ def test_paid_requires_agent(client, role):
 
 @pytest.mark.parametrize('fee,kind,accepted', [(50, 'percent', True), (101, 'percent', False), (80000, 'fixed', True), (-1, 'fixed', False)])
 def test_commission_values_and_market(client, fee, kind, accepted):
+    agent_profile(client)
     request = body(commission=fee)
     request['listing'].update(role='agent', commission_type=kind, commission_currency='USD', commission_basis='day')
     response = client.post('/api/listings', json=request, headers=signed())
@@ -32,6 +33,7 @@ def test_commission_values_and_market(client, fee, kind, accepted):
 
 
 def test_paid_never_falls_back_to_free_channel(client, monkeypatch):
+    agent_profile(client)
     request = body(commission=50)
     request['listing']['role'] = 'agent'
     listing = client.post('/api/listings', json=request, headers=signed()).json()
@@ -59,6 +61,7 @@ def test_paid_never_falls_back_to_free_channel(client, monkeypatch):
 
 
 def test_subscriptions_keep_markets_separate(client):
+    agent_profile(client)
     for uid, market in [(43, 'free'), (44, 'paid')]:
         response = client.post('/api/subscriptions', headers=signed(uid), json={'name': market, 'frequency':'instant', 'filters':{'market':market}})
         assert response.status_code == 200
