@@ -1,11 +1,13 @@
 """Mobile UI against the real FastAPI routes in a temporary database.
 Browser requests are intercepted and routed to TestClient; no Telegram/network calls.
 """
-import json,os,sys,tempfile
+import asyncio,base64,json,os,sys,tempfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import urlparse
 R=Path(__file__).resolve().parents[1];sys.path.insert(0,str(R))
 from fastapi.testclient import TestClient
+from fastapi.responses import Response
 from playwright.sync_api import sync_playwright,expect
 import server as s
 from test_server import agent_profile, signed,body
@@ -104,7 +106,62 @@ with tempfile.TemporaryDirectory(prefix='rent-mobile-',ignore_cleanup_errors=Tru
   assert restored['status']=='active' and restored['view_count']==2 and restored['created_at']==first['created_at']
   actor(42);page.locator('[data-listing="'+agent['id']+'"] .listing-main').click()
   assert page.locator('.sheet [data-action=phone-listings]').count()==0
+  # A complaint is reviewed before sending; Telegram evidence stays private.
+  calls=[]
+  async def fake_tg(method,data):calls.append((method,data));return {'message_id':1}
+  s.tg=fake_tg
+  async def proof_stream(photo,private=False):
+   assert private
+   return Response(base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII='),media_type='image/png')
+  s.stream_telegram_photo=proof_stream
+  actor(43);open_first();page.locator('[data-action=report]').click();page.locator('#report-form').wait_for()
+  assert not page.locator('#report-reason').evaluate('(x)=>x.checkValidity()')
+  with s.db() as c:assert c.execute("SELECT count(*) FROM reports WHERE status='pending'").fetchone()[0]==0
+  page.locator('#report-reason').fill('Скрытая комиссия')
+  page.locator('#report-details').fill('Автор запросил комиссию в личной переписке.')
+  page.locator('#report-evidence').fill('https://t.me/example_thread/123')
+  page.evaluate('()=>{window.opened=[];tg.openTelegramLink=url=>opened.push(url);}')
+  page.locator('[data-action=report-photos]').click()
+  page.wait_for_function('opened.length===1')
+  rid=page.evaluate('state.report.id')
+  assert page.evaluate('opened[0]')=='https://t.me/test_bot?start=proof_'+rid
+  from test_reports import incoming,photo
+  with ThreadPoolExecutor(max_workers=1) as pool:
+   pool.submit(asyncio.run,s.receive(incoming(43,text='/start proof_'+rid))).result()
+   pool.submit(asyncio.run,s.receive(incoming(43,photo=photo()))).result()
+  assert 'report_'+rid in calls[-1][1]['reply_markup']['inline_keyboard'][0][0]['web_app']['url']
+  page.locator('[data-action=refresh-proofs]').click()
+  page.locator('.report-proofs img').wait_for()
+  assert page.locator('#report-details').input_value()=='Автор запросил комиссию в личной переписке.'
+  for width in [320,390,430]:
+   page.set_viewport_size({'width':width,'height':844})
+   assert page.locator('.sheet-body').evaluate('(x)=>x.scrollWidth<=x.clientWidth')
+   page.screenshot(animations='disabled',path=str(O/f'report-form-{width}.png'))
+  page.locator('button[form=report-form]').click()
+  page.wait_for_function('document.querySelector(".report-content")?.textContent.includes("Ожидает решения")')
+  assert page.locator('#report-decision').count()==0
+  assert client.get('/api/admin/reports',headers=signed(99)).json()[0]['reporter']['id']==43
+  # Launch the exact target carried by the private notification button.
+  actor(99)
+  page.evaluate('async rid=>{history.replaceState({},"","?start=report_"+rid);startHandled=false;await startRoute();}',rid)
+  page.locator('#report-decision').wait_for()
+  assert 'ID 43' in page.locator('.report-content').inner_text()
+  assert page.locator('.report-proofs img').count()==1
+  assert page.locator('.report-content a[href="https://t.me/example_thread/123"]').count()==1
+  page.locator('[data-action=report-listing]').click();page.locator('.detail-sheet').wait_for()
+  page.locator('[data-action=close]').click()
+  page.locator('[data-action=open-admin]').click();page.locator('[data-action=admin-tab][data-id=reports]').click()
+  page.locator('[data-action=open-report]').click();page.locator('#report-decision').wait_for()
+  assert not page.locator('#report-outcome').evaluate('(x)=>x.checkValidity()')
+  page.locator('#report-outcome').select_option('ban')
+  page.locator('#report-resolution').fill('Скрытая комиссия подтверждена перепиской.')
+  page.screenshot(animations='disabled',path=str(O/'report-admin-430.png'))
+  page.locator('button[form=report-decision]').click()
+  page.wait_for_function('document.querySelector(".report-row")?.textContent.includes("Объявление заблокировано")')
+  assert client.get('/api/listings/'+first['id']).status_code==404
+  actor(42);page.locator('[data-action=mine]').click()
+  assert 'Скрытая комиссия подтверждена перепиской.' in page.locator('[data-mine-id="'+first['id']+'"]').inner_text()
   assert not errors,errors
-  report={'result':'passed','mobile_widths':[320,360,390,430],'js_errors':errors,'scenarios':['phone mask only, manual clear persists','explicit realtor role','same phone without realtor','unique views across authenticated users and anonymous display','My listings active and rented','admin required ban reason','owner sees ban and cannot restore','admin unban retains date and views'],'telegram_calls':0,'scope':'Chromium UI with intercepted requests to real FastAPI TestClient and temporary SQLite; no live data or Telegram network'}
+  report={'result':'passed','mobile_widths':[320,360,390,430],'js_errors':errors,'scenarios':['phone mask only, manual clear persists','explicit realtor role','same phone without realtor','unique views across authenticated users and anonymous display','My listings active and rented','admin required ban reason','owner sees ban and cannot restore','admin unban retains date and views','complaint reason and evidence handoff','private screenshots and direct report launch','admin complaint resolution and owner ban reason'],'telegram_calls':0,'scope':'Chromium UI with intercepted requests to real FastAPI TestClient and temporary SQLite; no live data or Telegram network'}
   (O/'mobile-moderation.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8');print(json.dumps(report,ensure_ascii=False))
   b.close()

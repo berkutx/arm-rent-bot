@@ -212,7 +212,10 @@ function review() {
     <p class="note">Публикуя, подтверждаете: жильё доступно, размещение согласовано, цена и комиссия указаны верно.</p></section>`;
 }
 
+let proofURLs=[];
+function clearProofURLs(){for(const url of proofURLs)URL.revokeObjectURL(url);proofURLs=[];}
 function showSheet(title, body, footer='', kind='', arg='', className='', push=true) {
+  clearProofURLs();
   const replacing=!!sheetKind;
   if (!sheetKind) restoreFocus=document.activeElement;
   sheetKind=kind||'generic'; sheetArg=arg;
@@ -222,6 +225,7 @@ function showSheet(title, body, footer='', kind='', arg='', className='', push=t
   if (push && !replacing) history.pushState({...history.state,rent:true,screen:state.screen,step:state.formStep,sheet:true},'');
 }
 function clearSheet(focus=true) {
+  clearProofURLs();
   $('#modal-root').innerHTML=''; sheetKind=''; sheetArg='';
   $('#app').inert=false; document.body.style.overflow=''; updateBackButton();
   if (focus && restoreFocus?.isConnected) restoreFocus.focus({preventScroll:true});
@@ -295,8 +299,8 @@ async function phoneListings(id,button) {
     showSheet('С этим телефоном',`<p class="note">Активные объявления с этим телефоном, без риелторов. Личность и право собственности проверяются отдельно.</p>${rows?`<div class="phone-listings">${rows}</div>`:'<div class="author-empty"><h3>Других объявлений не найдено</h3></div>'}`,`<button class="button secondary" data-action="detail" data-id="${esc(id)}">К объявлению</button>`,'phone-listings',id);
   } finally {if(button.isConnected)button.disabled=false;}
 }
-async function detail(id) {
-  {
+async function detail(id,cached=false) {
+  if(!cached || !state.user?.is_admin) {
     try { const latest=await api('/api/listings/'+encodeURIComponent(id)); state.remote=state.remote.filter(x=>x.id!==id); state.remote.push(latest); }
     catch(e) { return toast(e.message); }
   }
@@ -311,11 +315,60 @@ function mineSheet() {
   showSheet('Мои объявления',state.own.map(l=>`<article class="my-row" data-mine-id="${esc(l.id)}"><h3>${esc(l.city)} · ${esc(l.address)}</h3><div class="card-metrics">${ageHTML(l)}${viewsHTML(l)}</div><p>${priceHTML(l,{})}</p><p class="listing-status status-${esc(l.status)}">${esc(niceStatus(l))}</p>${l.ban_reason||l.review_reason?`<div class="moderation-reason"><strong>${l.status==='banned'?'Причина блокировки':'Комментарий модератора'}</strong><p>${esc(l.ban_reason||l.review_reason)}</p></div>`:''}${['active','rented'].includes(l.status)?`<button class="text-button" data-action="detail" data-id="${esc(l.id)}">Открыть карточку</button><button class="button secondary" data-action="status" data-id="${esc(l.id)}" data-status="${l.status==='active'?'rented':'active'}">${l.status==='active'?'Отметить «Сдано»':'Снова актуально'}</button>`:''}${['active','review'].includes(l.status)?`<button class="text-button" data-action="verify" data-id="${esc(l.id)}">${l.document_status==='pending'?'Документ на проверке':'Подтвердить собственность'}</button>`:''}</article>`).join('')||'<p class="note">Пока нет объявлений. Нажмите «Сдать», чтобы добавить жильё.</p>','','mine');
 }
 async function refreshAdmin() {
-  state.queue=await api(state.adminTab==='review'?'/api/admin/queue':'/api/admin/listings?status='+state.adminTab);
+  state.queue=await api(state.adminTab==='reports'?'/api/admin/reports':state.adminTab==='review'?'/api/admin/queue':'/api/admin/listings?status='+state.adminTab);
 }
 function admin() {
   if (!state.user?.is_admin) return empty('Доступ только администратору','','К ленте');
-  return `<h1>Объявления</h1><div class="admin-tabs">${[['review','Проверка'],['all','Все'],['banned','Баны']].map(([k,t])=>`<button class="choice ${state.adminTab===k?'active':''}" data-action="admin-tab" data-id="${k}" aria-pressed="${state.adminTab===k}">${t}</button>`).join('')}</div><div class="stack">${state.queue.map(l=>`<article class="my-row" data-admin-id="${esc(l.id)}"><h3>${esc(l.city)} · ${esc(l.address)}</h3><p>${priceHTML(l,{})}</p><p class="listing-status status-${esc(l.status)}">${esc(niceStatus(l))}</p>${l.ban_reason||l.review_reason?`<div class="moderation-reason">${esc(l.ban_reason||l.review_reason)}</div>`:''}${l.description?`<details><summary>Описание ${icon('down')}</summary><p class="details-text">${esc(l.description)}</p></details>`:''}${l.document_status==='pending'?`<button class="button secondary" data-action="review-doc" data-id="${esc(l.id)}">Проверить документ</button>`:''}${adminAgentButton(l)}<div class="moderation-actions">${l.status==='banned'?`<button class="button secondary" data-action="unban" data-id="${esc(l.id)}">Снять блокировку</button>`:`${['review','rejected'].includes(l.status)?`<button class="button" data-action="approve" data-id="${esc(l.id)}">Одобрить</button>`:''}<button class="button secondary danger" data-action="ban" data-id="${esc(l.id)}">Заблокировать с причиной</button>`}</div></article>`).join('')||'<p class="note">Объявлений в этом разделе нет.</p>'}</div>`;
+  return `<h1>Объявления</h1><div class="admin-tabs">${[['review','Проверка'],['reports','Жалобы'],['all','Все'],['banned','Баны']].map(([k,t])=>`<button class="choice ${state.adminTab===k?'active':''}" data-action="admin-tab" data-id="${k}" aria-pressed="${state.adminTab===k}">${t}</button>`).join('')}</div><div class="stack">${state.adminTab==='reports'?reportsHTML():state.queue.map(l=>`<article class="my-row" data-admin-id="${esc(l.id)}"><h3>${esc(l.city)} · ${esc(l.address)}</h3><p>${priceHTML(l,{})}</p><p class="listing-status status-${esc(l.status)}">${esc(niceStatus(l))}</p>${l.ban_reason||l.review_reason?`<div class="moderation-reason">${esc(l.ban_reason||l.review_reason)}</div>`:''}${l.description?`<details><summary>Описание ${icon('down')}</summary><p class="details-text">${esc(l.description)}</p></details>`:''}${l.document_status==='pending'?`<button class="button secondary" data-action="review-doc" data-id="${esc(l.id)}">Проверить документ</button>`:''}${adminAgentButton(l)}<div class="moderation-actions">${l.status==='banned'?`<button class="button secondary" data-action="unban" data-id="${esc(l.id)}">Снять блокировку</button>`:`${['review','rejected'].includes(l.status)?`<button class="button" data-action="approve" data-id="${esc(l.id)}">Одобрить</button>`:''}<button class="button secondary danger" data-action="ban" data-id="${esc(l.id)}">Заблокировать с причиной</button>`}</div></article>`).join('')||'<p class="note">Объявлений в этом разделе нет.</p>'}</div>`;
+}
+function reportStatus(r){return r.status==='draft'?'Черновик':r.status==='pending'?'Ожидает решения':r.outcome==='ban'?'Объявление заблокировано':'Жалоба отклонена';}
+function reportsHTML(){return state.queue.map(r=>`<button class="my-row report-row" data-action="open-report" data-id="${esc(r.id)}"><strong>${esc(r.listing.address)}</strong><span>${esc(r.reason||'Причина не указана')}</span><small>${esc(r.reporter.name)} · ${esc(r.reporter.username?'@'+r.reporter.username:'ID '+r.reporter.id)}</small><span>${esc(reportStatus(r))}</span></button>`).join('')||'<p class="note">Жалоб пока нет.</p>';}
+function proofHTML(r,editable=false){return `<div class="report-proofs">${r.photos.map((p,i)=>`<div><img data-proof-src="${esc(p.url)}" alt="Доказательство ${i+1}">${editable?`<button type="button" class="text-button" data-action="remove-proof" data-id="${esc(p.id)}">Удалить фото ${i+1}</button>`:''}</div>`).join('')}</div>`;}
+async function loadProofs(){
+  for(const img of document.querySelectorAll('[data-proof-src]')){
+    try{
+      const response=await fetch(img.dataset.proofSrc,{headers:{'X-Telegram-Init-Data':tg?.initData||''},cache:'no-store'});
+      if(!response.ok)throw Error();
+      const blob=await response.blob();if(!img.isConnected)continue;
+      const url=URL.createObjectURL(blob);proofURLs.push(url);img.src=url;
+    }catch{if(img.isConnected)img.alt='Фото не загрузилось. Обновите доказательства.';}
+  }
+}
+async function reportSheet(id,isReport=false){
+  if(!requireUser())return;
+  const r=await api(isReport?'/api/reports/'+id:'/api/listings/'+id+'/report-draft',isReport?'GET':'POST',isReport?undefined:{});
+  state.report=r;
+  if(r.status!=='draft')return reportReview(r);
+  showSheet('Жалоба на объявление',`<form id="report-form" data-listing="${esc(r.listing.id)}" class="stack"><p>${esc(r.listing.address)}</p><div><label for="report-reason">Причина</label><input id="report-reason" name="reason" minlength="3" maxlength="200" required placeholder="Например: скрытая комиссия" value="${esc(r.reason)}"></div><div><label for="report-details">Что произошло</label><textarea id="report-details" name="details" minlength="10" maxlength="2000" required placeholder="Что в объявлении не соответствует действительности?">${esc(r.details)}</textarea></div><div><label for="report-evidence">Доказательства <small>если есть</small></label><textarea id="report-evidence" name="evidence" maxlength="2000" placeholder="Ссылки на сообщения, публикации или другие подтверждения">${esc(r.evidence)}</textarea></div><button class="button secondary" type="button" data-action="report-photos">Добавить скриншоты через Telegram</button><button class="text-button" type="button" data-action="refresh-proofs">Обновить фото · ${r.photos.length}/5</button>${proofHTML(r,true)}<p class="note">Жалобу, ваш Telegram и доказательства увидят только администраторы.</p></form>`,`<button class="button" type="submit" form="report-form">Отправить жалобу</button>`,'report',r.id);
+  void loadProofs();
+}
+async function saveReportForm(){
+  const form=$('#report-form');if(!form)return;
+  const x=Object.fromEntries(new FormData(form));
+  state.report=await api('/api/reports/'+state.report.id,'PUT',x);
+}
+function evidenceHTML(text){
+  return text.split(/(https?:\/\/[^\s<>]+)/g).map(part=>/^https?:\/\//.test(part)?`<a href="${esc(part)}" target="_blank" rel="noopener noreferrer">${esc(part)}</a>`:esc(part)).join('');
+}
+function reportReview(r){
+  const isAdmin=state.user?.is_admin,p=r.reporter,l=r.listing;
+  state.remote=state.remote.filter(x=>x.id!==l.id);state.remote.push(l);
+  const who=`${esc(p.name)}${p.username?` · <a href="https://t.me/${encodeURIComponent(p.username)}" target="_blank" rel="noopener noreferrer">@${esc(p.username)}</a>`:''} · ID ${esc(p.id)}`;
+  const form=isAdmin&&r.status==='pending'?`<form id="report-decision" class="stack"><div><label for="report-outcome">Решение</label><select id="report-outcome" name="outcome" required><option value="">Выберите</option><option value="dismiss">Отклонить жалобу</option><option value="ban">Заблокировать объявление</option></select></div><div><label for="report-resolution">Причина решения</label><textarea id="report-resolution" name="reason" required minlength="3" maxlength="500"></textarea></div><p class="note">При блокировке автор увидит причину решения.</p></form>`:'';
+  showSheet('Жалоба',`<div class="stack report-content"><strong>${esc(l.city)} · ${esc(l.address)}</strong><p class="note">${esc(reportStatus(r))} · ${esc(new Date(r.created_at).toLocaleString('ru-RU'))}</p><p>От: ${who}</p><h3>${esc(r.reason||'Причина не указана')}</h3>${r.details?`<p class="details-text">${esc(r.details)}</p>`:''}${r.evidence?`<div class="details-text">${evidenceHTML(r.evidence)}</div>`:''}${proofHTML(r)}${isAdmin?`<button class="button secondary" data-action="report-listing" data-id="${esc(l.id)}">Открыть объявление</button>`:''}${r.resolution?`<p class="moderation-reason">${esc(r.resolution)}</p>`:''}${form}</div>`,form?'<button class="button" type="submit" form="report-decision">Сохранить решение</button>':'','report-review',r.id);
+  void loadProofs();
+}
+async function submitReport(form,x){
+  const button=$(`button[form="${form.id}"]`);button.disabled=true;
+  try{
+    if(form.id==='report-form'){
+      await api('/api/listings/'+form.dataset.listing+'/report','POST',{...x,report_id:state.report.id});
+      await reportSheet(state.report.id,true);toast('Жалоба отправлена администратору.');
+    }else{
+      await api('/api/admin/reports/'+state.report.id+'/resolve','POST',x);
+      closeSheet();await refresh();state.adminTab='reports';await refreshAdmin();navigate('admin');toast('Решение сохранено.');
+    }
+  }finally{if(button.isConnected)button.disabled=false;}
 }
 function banSheet(id) {
   if(!state.user?.is_admin)return;
@@ -548,7 +601,15 @@ async function action(a,id,el) {
   }
   if(a==='discussion'){const l=item(id);if(l?.telegram_discussion_url)safeOpen(l.telegram_discussion_url);return;}
   if (a==='contact') return contactSheet(id);
-  if (a==='report') { if(requireUser()) { await api('/api/listings/'+id+'/report','POST',{}); toast('Жалоба отправлена админу.'); } return; }
+  if(a==='report')return reportSheet(id);
+  if(a==='open-report')return reportSheet(id,true);
+  if(a==='report-listing')return detail(id,true);
+  if(a==='report-photos'){
+    el.disabled=true;try{await saveReportForm();safeOpen('https://t.me/'+state.bot+'?start=proof_'+state.report.id);}finally{if(el.isConnected)el.disabled=false;}return;
+  }
+  if(a==='refresh-proofs'||a==='remove-proof'){
+    el.disabled=true;try{await saveReportForm();if(a==='remove-proof')await api('/api/reports/'+state.report.id+'/photos/'+id,'DELETE');await reportSheet(state.report.id,true);}finally{if(el.isConnected)el.disabled=false;}return;
+  }
   if (a==='approve'||a==='reject') { if(!state.user?.is_admin)return; await api('/api/admin/'+id+'/decision','POST',{decision:a==='approve'?'approve':'reject'}); await refreshAdmin(); await refresh(); render(); }
 }
 document.addEventListener('click',e=>{
@@ -580,6 +641,7 @@ document.addEventListener('change',e=>{
 document.addEventListener('invalid',e=>{for(let el=e.target.parentElement;el;el=el.parentElement)if(el.tagName==='DETAILS')el.open=true;},true);
 document.addEventListener('submit',e=>{
   e.preventDefault(); const x=Object.fromEntries(new FormData(e.target));
+  if(['report-form','report-decision'].includes(e.target.id)){submitReport(e.target,x).catch(err=>toast(err.message));return;}
   if(['step-address-form','step-price-form'].includes(e.target.id)){prepareListing().catch(err=>toast(err.message));return;}
   if(['verification-form','verification-decision','contact-form','filter-conditions','ban-form','commission-form','agent-profile-form'].includes(e.target.id)){handleExtraForm(e.target,x).catch(err=>toast(err.message));return;}
   if(e.target.id==='budget-form'||e.target.id==='edit-price-form') {
@@ -648,8 +710,15 @@ async function startRoute() {
   if(startHandled)return;
   const p=tg?.initDataUnsafe?.start_param||new URLSearchParams(location.search).get('start')||new URLSearchParams(location.search).get('tgWebAppStartParam')||'';
   if(!p)return;
-  if(!state.user && ['draft','admin'].includes(p))return;
+  if(!state.user && (['draft','admin'].includes(p)||p.startsWith('report_')||p.startsWith('review_')))return;
   startHandled=true;
+  if(p.startsWith('report_')){await reportSheet(p.slice(7),true);return;}
+  if(p.startsWith('review_')&&state.user?.is_admin){
+    const id=p.slice(7);state.adminTab='review';await refreshAdmin();
+    if(!state.queue.some(l=>l.id===id)){state.adminTab='all';await refreshAdmin();}
+    navigate('admin',false);const row=$(`[data-admin-id="${CSS.escape(id)}"]`);
+    if(row){row.setAttribute('tabindex','-1');row.scrollIntoView({block:'start'});row.focus({preventScroll:true});}return;
+  }
   if(p.startsWith('l_')) { detail(p.slice(2)); return; }
   if(['add','draft'].includes(p)) {
     if(state.user&&p==='draft') {restoreDraft();await syncDraft(true);}

@@ -52,6 +52,10 @@ def setup():
         c.execute('PRAGMA journal_mode=WAL')
         c.executescript('''
         CREATE TABLE IF NOT EXISTS listing_views(lid TEXT NOT NULL, viewer_key BLOB NOT NULL, PRIMARY KEY(lid,viewer_key)) WITHOUT ROWID;
+        CREATE TABLE IF NOT EXISTS reports(id TEXT PRIMARY KEY,lid TEXT NOT NULL,uid INTEGER NOT NULL,payload BLOB NOT NULL,status TEXT NOT NULL,created REAL NOT NULL,resolved REAL,resolved_by INTEGER,resolution TEXT DEFAULT '',outcome TEXT DEFAULT '');
+        CREATE INDEX IF NOT EXISTS reports_queue ON reports(status,created);
+        CREATE UNIQUE INDEX IF NOT EXISTS report_draft ON reports(uid,lid) WHERE status='draft';
+        CREATE TABLE IF NOT EXISTS report_uploads(uid INTEGER PRIMARY KEY,rid TEXT NOT NULL,updated REAL NOT NULL);
         CREATE TABLE IF NOT EXISTS agent_profiles(uid INTEGER PRIMARY KEY, encrypted BLOB NOT NULL, updated REAL NOT NULL);
         CREATE TABLE IF NOT EXISTS users(uid INTEGER PRIMARY KEY, username TEXT, name TEXT, started INTEGER DEFAULT 0);
         CREATE TABLE IF NOT EXISTS listings(id TEXT PRIMARY KEY, uid INTEGER, payload TEXT, status TEXT, created REAL, confirmed REAL, fingerprint TEXT, private BLOB, private_expires REAL, reason TEXT, channel_message INTEGER, channel_kind TEXT, reminded REAL DEFAULT 0, UNIQUE(uid,fingerprint));
@@ -64,6 +68,13 @@ def setup():
         CREATE TABLE IF NOT EXISTS drafts(uid INTEGER PRIMARY KEY,text TEXT,photos TEXT,updated REAL);
         CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY,value TEXT);
         ''')
+        if not c.execute("SELECT 1 FROM meta WHERE key='reports_v1'").fetchone():
+            for row in c.execute("SELECT a.*,u.username,u.name FROM audit a LEFT JOIN users u ON u.uid=a.uid WHERE action='report'").fetchall():
+                rid=hashlib.sha256(('report:'+str(row['id'])).encode()).hexdigest()[:16]
+                payload={'reason':'','details':'','evidence':'','photos':[],'reporter':{'name':row['name'] or '', 'username':row['username'] or ''}}
+                c.execute('INSERT OR IGNORE INTO reports(id,lid,uid,payload,status,created) VALUES(?,?,?,?,?,?)',(rid,row['lid'],row['uid'],CIPHER.encrypt(dumps(payload).encode()),'pending',row['created']))
+            c.execute("UPDATE jobs SET status='cancelled' WHERE kind='admin' AND json_extract(payload,'$.report')=1 AND status='pending'")
+            c.execute("INSERT INTO meta VALUES('reports_v1','1')")
         if 'sizes' not in {r['name'] for r in c.execute('PRAGMA table_info(photos)')}:c.execute('ALTER TABLE photos ADD COLUMN sizes TEXT')
         columns={row['name'] for row in c.execute('PRAGMA table_info(listings)')}
         if 'view_count' not in columns:c.execute('ALTER TABLE listings ADD COLUMN view_count INTEGER NOT NULL DEFAULT 0')
@@ -546,6 +557,9 @@ async def media(filename:str):
     photo=photo_sizes(match[1])['thumb' if match[2] else 'full']
     if photo.get('source_post'):
         return RedirectResponse(await source_photo_url(photo),status_code=302,headers={'Cache-Control':'public, max-age=300'})
+    return await stream_telegram_photo(photo)
+
+async def stream_telegram_photo(photo,private=False):
     client=httpx.AsyncClient(timeout=30)
     try:
         for attempt in range(2):
@@ -567,7 +581,7 @@ async def media(filename:str):
         except httpx.HTTPError:raise RuntimeError('Photo transfer interrupted') from None
         finally:
             await response.aclose();await client.aclose()
-    headers={'Cache-Control':'public, max-age=86400','X-Content-Type-Options':'nosniff'}
+    headers={'Cache-Control':'no-store' if private else 'public, max-age=86400','X-Content-Type-Options':'nosniff'}
     if response.headers.get('content-length'):headers['Content-Length']=response.headers['content-length']
     return StreamingResponse(content(),media_type='image/jpeg',headers=headers)
 
@@ -608,11 +622,109 @@ def status_change(lid,uid,status):
     return listing(getrow(lid),True)
 @app.post('/api/listings/{lid}/status')
 async def set_status(lid:str,s:StatusIn,u=Depends(user)):return status_change(lid,u['id'],s.status)
-@app.post('/api/listings/{lid}/report')
-async def report(lid:str,u=Depends(user)):
-    rate(u['id'],'report',10);getrow(lid);audit(u['id'],lid,'report')
-    enqueue('admin',{'id':lid,'report':True},f"report:{lid}:{int(time.time()/3600)}")
+class ReportIn(BaseModel):
+    reason:str=Field(default='',max_length=200)
+    details:str=Field(default='',max_length=2000)
+    evidence:str=Field(default='',max_length=2000)
+
+class ReportSubmit(ReportIn):
+    report_id:str=Field(pattern=r'^[a-f0-9]{16}$')
+
+class ReportDecision(BaseModel):
+    outcome:Literal['dismiss','ban']
+    reason:str=Field(min_length=3,max_length=500)
+
+def report_row(rid,uid):
+    with db() as c:r=c.execute('SELECT * FROM reports WHERE id=?',(rid,)).fetchone()
+    if not r or (r['uid']!=uid and uid not in ADMINS):raise HTTPException(404,'Жалоба не найдена')
+    return r
+
+def report_data(r):return json.loads(CIPHER.decrypt(r['payload']))
+
+def report_view(r):
+    d=report_data(r);l=listing(getrow(r['lid']))
+    return {'id':r['id'],'listing':l,'status':r['status'],'created_at':stamp(r['created']),
+            'reason':d['reason'],'details':d['details'],'evidence':d['evidence'],
+            'reporter':{**d['reporter'],'id':r['uid']},'resolution':r['resolution'],'outcome':r['outcome'],
+            'photos':[{'id':p['id'],'url':f"/api/reports/{r['id']}/photos/{p['id']}"} for p in d['photos']]}
+
+@app.post('/api/listings/{lid}/report-draft')
+async def report_draft(lid:str,u=Depends(user)):
+    if getrow(lid)['status']!='active':raise HTTPException(404,'Объявление недоступно')
+    rate(u['id'],'report-draft',30)
+    with db() as c:
+        c.execute('BEGIN IMMEDIATE')
+        r=c.execute("SELECT * FROM reports WHERE uid=? AND lid=? AND status='draft'",(u['id'],lid)).fetchone()
+        if not r:
+            rid=secrets.token_hex(8)
+            d={'reason':'','details':'','evidence':'','photos':[],'reporter':{'name':u.get('first_name',''),'username':u.get('username','')}}
+            c.execute('INSERT INTO reports(id,lid,uid,payload,status,created) VALUES(?,?,?,?,?,?)',(rid,lid,u['id'],CIPHER.encrypt(dumps(d).encode()),'draft',time.time()))
+            r=c.execute('SELECT * FROM reports WHERE id=?',(rid,)).fetchone()
+    return report_view(r)
+
+@app.get('/api/reports/{rid}')
+async def get_report(rid:str,u=Depends(user)):return report_view(report_row(rid,u['id']))
+
+@app.put('/api/reports/{rid}')
+async def save_report(rid:str,x:ReportIn,u=Depends(user)):
+    with db() as c:
+        c.execute('BEGIN IMMEDIATE');r=report_row(rid,u['id'])
+        if r['uid']!=u['id'] or r['status']!='draft':raise HTTPException(409,'Жалоба уже отправлена')
+        d=report_data(r);d.update(x.model_dump())
+        c.execute('UPDATE reports SET payload=? WHERE id=?',(CIPHER.encrypt(dumps(d).encode()),rid))
+    return report_view(report_row(rid,u['id']))
+
+@app.delete('/api/reports/{rid}/photos/{pid}')
+async def remove_report_photo(rid:str,pid:str,u=Depends(user)):
+    with db() as c:
+        c.execute('BEGIN IMMEDIATE');r=report_row(rid,u['id'])
+        if r['uid']!=u['id'] or r['status']!='draft':raise HTTPException(409,'Жалоба уже отправлена')
+        d=report_data(r);d['photos']=[p for p in d['photos'] if p['id']!=pid]
+        c.execute('UPDATE reports SET payload=? WHERE id=?',(CIPHER.encrypt(dumps(d).encode()),rid))
     return {'ok':True}
+
+@app.get('/api/reports/{rid}/photos/{pid}')
+async def report_photo(rid:str,pid:str,u=Depends(user)):
+    d=report_data(report_row(rid,u['id']))
+    photo=next((p for p in d['photos'] if p['id']==pid),None)
+    if not photo:raise HTTPException(404,'Фото не найдено')
+    return await stream_telegram_photo(photo,private=True)
+
+@app.post('/api/listings/{lid}/report')
+async def report(lid:str,x:ReportSubmit,u=Depends(user)):
+    if len(x.reason.strip())<3 or len(x.details.strip())<10:raise HTTPException(400,'Укажите причину и опишите, что произошло')
+    with db() as c:
+        c.execute('BEGIN IMMEDIATE');r=report_row(x.report_id,u['id'])
+        if r['uid']!=u['id'] or r['lid']!=lid:raise HTTPException(404,'Жалоба не найдена')
+        if r['status']!='draft':return {'ok':True,'id':r['id']}
+        rate(u['id'],'report',10)
+        d=report_data(r);d.update({k:getattr(x,k).strip() for k in ('reason','details','evidence')})
+        d['reporter']={'name':u.get('first_name',''),'username':u.get('username','')}
+        now=time.time()
+        c.execute("UPDATE reports SET status='pending',payload=?,created=? WHERE id=?",(CIPHER.encrypt(dumps(d).encode()),now,r['id']))
+        c.execute('INSERT INTO audit(uid,lid,action,created) VALUES(?,?,?,?)',(u['id'],lid,'report_submitted',now))
+        c.execute('INSERT INTO jobs(kind,payload,jobkey,run_at) VALUES(?,?,?,?)',('report',dumps({'id':lid,'report_id':r['id']}),'report:'+r['id'],now))
+    return {'ok':True,'id':r['id']}
+
+@app.get('/api/admin/reports')
+async def admin_reports(u=Depends(admin_user)):
+    with db() as c:rs=c.execute("SELECT * FROM reports WHERE status!='draft' ORDER BY status='pending' DESC,created DESC LIMIT 200").fetchall()
+    return [report_view(r) for r in rs]
+
+@app.post('/api/admin/reports/{rid}/resolve')
+async def resolve_report(rid:str,x:ReportDecision,u=Depends(admin_user)):
+    reason=x.reason.strip()
+    if len(reason)<3:raise HTTPException(400,'Укажите причину решения')
+    with db() as c:
+        c.execute('BEGIN IMMEDIATE');r=report_row(rid,u['id'])
+        if r['status']!='pending':raise HTTPException(409,'Жалоба уже рассмотрена или ещё не отправлена')
+        if x.outcome=='ban':ban_in_db(c,r['lid'],reason)
+        now=time.time()
+        c.execute("UPDATE reports SET status='resolved',resolved=?,resolved_by=?,resolution=?,outcome=? WHERE id=?",(now,u['id'],reason,x.outcome,rid))
+        c.execute('INSERT INTO audit(uid,lid,action,created) VALUES(?,?,?,?)',(u['id'],r['lid'],'report_'+x.outcome,now))
+    if x.outcome=='ban' and getrow(r['lid'])['channel_message']:enqueue('edit',{'id':r['lid']},'report-ban:'+rid)
+    return report_view(report_row(rid,u['id']))
+
 @app.get('/api/admin/queue')
 async def queue(u=Depends(admin_user)):
     with db() as c:rs=c.execute("SELECT * FROM listings WHERE status='review' OR private IS NOT NULL ORDER BY created").fetchall()
@@ -623,17 +735,21 @@ async def admin_listings(status:Literal['all','banned']='all',u=Depends(admin_us
         rows=c.execute("SELECT * FROM listings WHERE (?='all' OR status=?) ORDER BY created DESC LIMIT 500",(status,status)).fetchall()
     return [listing(r,True) for r in rows]
 
+def ban_in_db(c,lid,reason):
+    r=c.execute('SELECT * FROM listings WHERE id=?',(lid,)).fetchone()
+    if not r:raise HTTPException(404,'Объявление не найдено')
+    d=json.loads(r['payload'])
+    if r['status']!='banned':d['_status_before_ban']=r['status']
+    if d.get('document_status')=='pending':d['document_status']='none'
+    c.execute("UPDATE listings SET status='banned',reason=?,payload=?,private=NULL,private_expires=NULL WHERE id=?",(reason,dumps(d),lid))
+    return r
+
 @app.post('/api/admin/{lid}/ban')
 async def ban_listing(lid:str,x:BanIn,u=Depends(admin_user)):
     reason=x.reason.strip()
     if len(reason)<3:raise HTTPException(400,'Укажите причину блокировки')
     with db() as c:
-        c.execute('BEGIN IMMEDIATE');r=c.execute('SELECT * FROM listings WHERE id=?',(lid,)).fetchone()
-        if not r:raise HTTPException(404,'Объявление не найдено')
-        d=json.loads(r['payload'])
-        if r['status']!='banned':d['_status_before_ban']=r['status']
-        if d.get('document_status')=='pending':d['document_status']='none'
-        c.execute("UPDATE listings SET status='banned',reason=?,payload=?,private=NULL,private_expires=NULL WHERE id=?",(reason,dumps(d),lid))
+        c.execute('BEGIN IMMEDIATE');r=ban_in_db(c,lid,reason)
     audit(u['id'],lid,'ban')
     if r['channel_message']:enqueue('edit',{'id':lid},f'ban-edit:{lid}:{secrets.token_hex(4)}')
     return listing(getrow(lid),True)
@@ -766,7 +882,10 @@ async def tg(method,payload):
         data=res.json()
     if not data.get('ok'):raise TelegramError(data.get('error_code',res.status_code),data.get('parameters',{}).get('retry_after',0))
     return data.get('result')
-def link(start=''):return f'https://t.me/{BOT}?startapp='+start
+def link(start=''):return f'https://t.me/{BOT}?start='+start
+
+def app_button(text,start=''):
+    return {'text':text,'web_app':{'url':PUBLIC_URL+('?start='+start if start else '')}}
 
 def commission_text(l):
     amount=l.get('commission')
@@ -832,10 +951,20 @@ async def process_job(j):
         kw={'chat_id':chat,'message_id':r['channel_message']}
         if r['channel_kind']=='photo':await tg('editMessageCaption',{**kw,'caption':public_text(l)[:1000],'reply_markup':keyboard(l)})
         else:await tg('editMessageText',{**kw,'text':public_text(l),'reply_markup':keyboard(l)})
+    elif kind=='report':
+        report=report_row(p['report_id'],next(iter(ADMINS),0))
+        if report['status']!='pending':return
+        d=report_data(report);person=d['reporter']
+        who=(person['name']+' · '+('@'+person['username']+' · ' if person['username'] else '')+'ID '+str(report['uid'])).strip()
+        text='Жалоба на объявление\n'+l['address']+'\nОт: '+who+'\nПричина: '+d['reason']+'\n'+d['details'][:1400]
+        text+='\nДоказательства: '+('ссылки / пояснение; ' if d['evidence'] else '')+str(len(d['photos']))+' фото. Полностью — в жалобе.'
+        for admin in ADMINS:
+            await tg('sendMessage',{'chat_id':admin,'text':text,'link_preview_options':{'is_disabled':True},'reply_markup':{'inline_keyboard':[[app_button('Разобрать жалобу','report_'+report['id'])]]}})
+            await asyncio.sleep(1.05)
     elif kind=='admin':
         for admin in ADMINS:
-            label='Жалоба на объявление' if p.get('report') else 'Нужно решение: '+(r['reason'] or 'необязательная проверка документа')
-            await tg('sendMessage',{'chat_id':admin,'text':label+'\n'+l['address']+'\nПодробности — в задаче.','reply_markup':{'inline_keyboard':[[{'text':'Открыть задачу','url':link('admin')}],[{'text':'Опубликовать','callback_data':'approve:'+lid},{'text':'Отклонить','callback_data':'reject:'+lid}]]}})
+            label='Нужно решение: '+(r['reason'] or 'проверка документа')
+            await tg('sendMessage',{'chat_id':admin,'text':label+'\n'+l['address'],'reply_markup':{'inline_keyboard':[[app_button('Открыть задачу','review_'+lid)]]}})
             await asyncio.sleep(1.05)
     elif kind=='match':
         with db() as c:
@@ -857,7 +986,7 @@ async def process_job(j):
         with db() as c:
             for x in selected:c.execute('INSERT OR IGNORE INTO deliveries VALUES(?,?)',(uid,x['id']))
     elif kind=='verification_result':
-        await tg('sendMessage',{'chat_id':r['uid'],'text':'Проверка объявления завершена: '+l['address']+'. Результат и дата — в карточке.','reply_markup':{'inline_keyboard':[[{'text':'Открыть карточку','url':link('l_'+lid)}]]}})
+        await tg('sendMessage',{'chat_id':r['uid'],'text':'Проверка объявления завершена: '+l['address']+'. Результат и дата — в карточке.','reply_markup':{'inline_keyboard':[[app_button('Открыть карточку','l_'+lid)]]}})
     elif kind=='reminder':
         return  # Obsolete v3 jobs must never send a renewal prompt.
 
@@ -896,6 +1025,29 @@ async def worker():
         except asyncio.CancelledError:raise
         except Exception as e:log.warning('Worker issue (%s)',type(e).__name__);await asyncio.sleep(5)
 
+async def receive_report_photo(m,uid,binding):
+    rid=binding['rid'];r=report_row(rid,uid)
+    if r['status']!='draft' or time.time()-binding['updated']>3600:
+        await tg('sendMessage',{'chat_id':uid,'text':'Приём доказательств закрыт. Откройте жалобу в приложении. Для фото жилья используйте /new.'});return
+    if not m.get('photo'):
+        await tg('sendMessage',{'chat_id':uid,'text':'Пришлите скриншоты как фото. Пояснения и ссылки добавьте в форме жалобы. /cancel — закончить приём.'});return
+    rate(uid,'report-photo',50)
+    sizes=[p for p in m['photo'] if p.get('file_id') and p.get('file_unique_id') and p.get('width',0)>0 and p.get('height',0)>0 and p.get('file_size',0)<=20_000_000]
+    if not sizes:raise HTTPException(400,'Telegram не предоставил фото')
+    photo=max(sizes,key=lambda p:p['width']*p['height'])
+    with db() as c:
+        c.execute('BEGIN IMMEDIATE');r=c.execute('SELECT * FROM reports WHERE id=?',(rid,)).fetchone()
+        if r['status']!='draft':return
+        d=report_data(r)
+        if len(d['photos'])>=5:
+            full=True
+        else:
+            full=False
+            if not any(p['unique_id']==photo['file_unique_id'] for p in d['photos']):
+                d['photos'].append({'id':secrets.token_hex(16),'file_id':photo['file_id'],'unique_id':photo['file_unique_id']})
+                c.execute('UPDATE reports SET payload=? WHERE id=?',(CIPHER.encrypt(dumps(d).encode()),rid))
+    if full:await tg('sendMessage',{'chat_id':uid,'text':'В жалобе уже 5 фото. Удалить лишние можно в форме.'})
+
 async def receive(update):
     cb=update.get('callback_query')
     if cb:
@@ -903,6 +1055,8 @@ async def receive(update):
         try:
             if len(parts)!=2:raise HTTPException(400,'Неизвестная кнопка')
             a,lid=parts;r=getrow(lid)
+            if a in ('approve','reject') and cb.get('message',{}).get('text','').startswith('Жалоба на объявление'):
+                raise HTTPException(409,'Откройте Админ → Жалобы, чтобы разобрать жалобу и указать причину решения')
             if a in ('approve','reject'):decision(lid,uid,a)
             elif a=='rented':status_change(lid,uid,'rented')
             elif a=='still':
@@ -923,6 +1077,24 @@ async def receive(update):
         await tg('sendMessage',{'chat_id':uid,'text':'Все поисковые уведомления приостановлены.'});return
     if text.startswith('/myid'):
         await tg('sendMessage',{'chat_id':uid,'text':str(uid)});return
+    if text.startswith('/start proof_'):
+        rid=text.removeprefix('/start proof_')
+        try:r=report_row(rid,uid)
+        except HTTPException:
+            await tg('sendMessage',{'chat_id':uid,'text':'Жалоба не найдена.'});return
+        if r['uid']!=uid or r['status']!='draft':
+            await tg('sendMessage',{'chat_id':uid,'text':'Приём доказательств для этой жалобы закрыт.'});return
+        with db() as c:c.execute('INSERT OR REPLACE INTO report_uploads VALUES(?,?,?)',(uid,rid,time.time()))
+        await tg('sendMessage',{'chat_id':uid,'text':'Пришлите до 5 скриншотов как фото, затем вернитесь в форму и отправьте жалобу. Доказательства доступны вам и администраторам. /cancel — закончить приём.','reply_markup':{'inline_keyboard':[[app_button('Вернуться к жалобе','report_'+rid)]]}});return
+    if text.startswith(('/start','/new','/cancel')):
+        with db() as c:c.execute('DELETE FROM report_uploads WHERE uid=?',(uid,))
+    if text=='/cancel':
+        await tg('sendMessage',{'chat_id':uid,'text':'Приём фото закончен. Загруженные доказательства сохранены в жалобе.'});return
+    start=text.removeprefix('/start ').strip()
+    if text.startswith('/start ') and re.fullmatch(r'(?:l_[A-Za-z0-9_-]{1,50}|report_[a-f0-9]{16}|review_[A-Za-z0-9_-]{1,50}|admin)',start):
+        if start=='admin' or start.startswith('review_'):
+            if uid not in ADMINS:return
+        await tg('sendMessage',{'chat_id':uid,'text':'Откройте в приложении:','reply_markup':{'inline_keyboard':[[app_button('Открыть',start)]]}});return
     if text=='/start photos':
         await tg('sendMessage',{'chat_id':uid,'text':'Пришлите до 10 фотографий альбомом, затем вернитесь к объявлению.','reply_markup':{'inline_keyboard':[[{'text':'Вернуться к объявлению','web_app':{'url':PUBLIC_URL+'?start=draft'}}]]}});return
     if text.startswith('/start') or text.startswith('/help'):
@@ -931,6 +1103,8 @@ async def receive(update):
     if text.startswith('/new'):
         with db() as c:c.execute('DELETE FROM drafts WHERE uid=?',(uid,))
         await tg('sendMessage',{'chat_id':uid,'text':'Черновик очищен. Пришлите текст и фото нового объявления.'});return
+    with db() as c:binding=c.execute('SELECT * FROM report_uploads WHERE uid=?',(uid,)).fetchone()
+    if binding:return await receive_report_photo(m,uid,binding)
     if not (m.get('photo') or text or m.get('caption')):return
     rate(uid,'draft',100)
     with db() as c:old=c.execute('SELECT * FROM drafts WHERE uid=?',(uid,)).fetchone()
