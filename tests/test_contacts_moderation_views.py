@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import pytest
 import server as s
-from test_server import agent_profile, client,body,signed,create
+from test_server import legacy_create,agent_profile, client,body,signed,create
 
 CASES=json.loads((Path(__file__).parent/'phone_cases.json').read_text(encoding='utf-8-sig'))
 @pytest.mark.parametrize('text,expected',CASES)
@@ -94,10 +94,10 @@ def test_unban_restores_previous_status_without_redating(client,previous):
 
 
 def test_banned_repost_cannot_bypass_moderation_and_private_data_removed(client):
-    row=create(client,private={'document_number':'TEST-DOC','document_password':'TEST-PASSWORD'})
+    row=legacy_create(client,private={'document_number':'TEST-DOC','document_password':'TEST-PASSWORD'})
     assert ban(client,row['id']).status_code==200
     assert s.getrow(row['id'])['private'] is None
-    again=create(client,private={'document_number':'TEST-DOC','document_password':'TEST-PASSWORD'})
+    again=create(client)
     assert again['id']==row['id'] and again['status']=='banned'
     changed=post(client,address='Тестовая 12',description='Изменённый текст')
     assert changed['status']=='review'

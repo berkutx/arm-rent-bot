@@ -17,7 +17,7 @@ const DISTRICTS=[
 ];
 const CITIES=['Ереван','Дилижан','Севан','Цахкадзор','Гюмри','Ванадзор','Абовян','Аштарак','Джермук','Прошян'];
 const norm=s=>String(s||'').toLowerCase().replace(/ё/g,'е').replace(/\s+/g,' ').trim();
-function offer(l,f={}){return(l.prices||[]).find(p=>(!f.period||p.period===f.period)&&(!f.currency||p.currency===f.currency)&&(!f.residence_registration||p.registration!=='no'))||null;}
+function offer(l,f={}){return(l.prices||[]).find(p=>(!f.period||p.period===f.period)&&(!f.currency||p.currency===f.currency)&&(!f.residence_registration||p.registration!=='no')&&(!f.pets||['yes','ask'].includes(['yes','no'].includes(p.pets)?p.pets:l.pets)))||null;}
 function matches(l,f={}){
  if(l.status!=='active')return false;
  if(f.city&&l.city!==f.city)return false;if(f.kind&&l.kind!==f.kind)return false;
@@ -26,7 +26,6 @@ function matches(l,f={}){
  if((f.market||'free')==='free'&&l.commission!==0)return false;
  if(f.market==='paid'&&!(l.role==='agent'&&l.commission>0))return false;
  if(f.owner&&l.role!=='owner')return false;
- if(f.pets&&!['yes','ask'].includes(l.pets))return false;
  if(f.contract&&l.contract!=='yes')return false;
  if(f.residence_registration&&!['yes','ask'].includes(l.residence_registration))return false;
  if(f.verified&&!['owner_verified','representative_verified'].includes(l.document_status))return false;

@@ -13,7 +13,7 @@ from cryptography.fernet import Fernet
 from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, RedirectResponse, FileResponse
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 
 ROOT=Path(__file__).resolve().parent
 # Read a local .env without an additional dependency. Never include this file in source control.
@@ -176,6 +176,7 @@ class Offer(BaseModel):
     amount_max:int|None=Field(default=None,gt=0,le=1_000_000_000)
     condition:str=Field(default='',max_length=200)
     registration:Literal['yes','no','unknown']='unknown'
+    pets:Literal['yes','no','unknown']='unknown'
     currency:Literal['AMD','USD']='AMD'
     period:Literal['month','day']
 class PhotoRef(BaseModel):
@@ -193,6 +194,7 @@ class ListingIn(BaseModel):
     floor:str|None=Field(default=None,max_length=30)
     role:Literal['unknown','owner','tenant','agent']='unknown'
     commission:int|None=Field(default=None,ge=0,le=1_000_000_000)
+    commission_max:int|None=Field(default=None,ge=0,le=1_000_000_000)
     commission_type:Literal['percent','fixed']='percent'
     commission_currency:Literal['AMD','USD']='AMD'
     commission_basis:Literal['month','day']='month'
@@ -209,6 +211,15 @@ class ListingIn(BaseModel):
     wishes:str=Field(default='',max_length=1200)
     prices:list[Offer]=Field(min_length=1,max_length=2)
     photos:list[PhotoRef]=Field(default_factory=list,max_length=10)
+
+    @model_validator(mode='after')
+    def commission_range(self):
+        if self.commission_max is not None:
+            if self.commission is None or self.commission_max<self.commission:raise ValueError('Верхняя граница комиссии должна быть не меньше нижней')
+            if self.commission==0 and self.commission_max>0:raise ValueError('Для диапазона укажите положительную нижнюю границу комиссии')
+        if self.commission_type=='percent' and max(self.commission or 0,self.commission_max or 0)>100:raise ValueError('Процент комиссии должен быть от 0 до 100')
+        return self
+
 class PrivateIn(BaseModel):
     note:str=Field(default='',max_length=500)
     applicant_name:str=Field(default='',max_length=140)
@@ -291,11 +302,10 @@ def matches(l,f):
     if market=='free' and l.get('commission')!=0:return False
     if market=='paid' and not (l.get('role')=='agent' and (l.get('commission') or 0)>0):return False
     if f.get('owner') and l.get('role')!='owner':return False
-    if f.get('pets') and l.get('pets') not in ('yes','ask'):return False
     if f.get('contract') and l.get('contract')!='yes':return False
     if f.get('residence_registration') and l.get('residence_registration') not in ('yes','ask'):return False
     if f.get('verified') and l.get('document_status') not in ('owner_verified','representative_verified'):return False
-    offers=[p for p in l['prices'] if (not f.get('period') or p['period']==f['period']) and (not f.get('currency') or p['currency']==f['currency']) and (not f.get('residence_registration') or p.get('registration')!='no')]
+    offers=[p for p in l['prices'] if (not f.get('period') or p['period']==f['period']) and (not f.get('currency') or p['currency']==f['currency']) and (not f.get('residence_registration') or p.get('registration')!='no') and (not f.get('pets') or (p.get('pets') if p.get('pets') in ('yes','no') else l.get('pets')) in ('yes','ask'))]
     if not offers:return False
     if f.get('max') and offers[0]['amount']>int(f['max']):return False
     if f.get('q') and norm(f['q']) not in norm(' '.join(l.get(k,'') or '' for k in ['address','city','district','description'])):return False
@@ -347,10 +357,11 @@ async def index():
 @app.get('/api/config')
 async def config():return {'live':LIVE,'bot_username':BOT if LIVE else '', 'version':'0.5.0','channel_configured':bool(LIVE and CHAT),'paid_channel_configured':bool(LIVE and PAID_CHAT),'source_enabled':os.getenv('TELEGRAM_SYNC_ENABLED','0')=='1','maps_enabled':bool(GEOCODER_URL)}
 
-@app.get('/assets/{filename}')
+@app.get('/assets/maplibre-6.7.0/{filename}')
 async def map_asset(filename:str):
-    if filename not in ('leaflet-1.9.4.js','leaflet-1.9.4.css'):raise HTTPException(404)
-    return FileResponse(ROOT/'web/vendor'/filename,headers={'Cache-Control':'public, max-age=31536000, immutable'})
+    if filename not in ('maplibre-gl.mjs','maplibre-gl-shared.mjs','maplibre-gl-worker.mjs','maplibre-gl.css'):raise HTTPException(404)
+    media_type='text/css' if filename.endswith('.css') else 'text/javascript'
+    return FileResponse(ROOT/'web/vendor/maplibre-6.7.0'/filename,media_type=media_type,headers={'Cache-Control':'public, max-age=31536000, immutable'})
 
 
 def map_candidates(rows):
@@ -425,7 +436,7 @@ async def listing_map(lid:str):
             latest=c.execute('SELECT * FROM listings WHERE id=?',(lid,)).fetchone()
             if not latest or latest['status'] not in ('active','rented') or location_key(json.loads(latest['payload']))!=key:raise HTTPException(409,'Объявление изменилось. Откройте карточку заново.')
             c.execute('INSERT OR REPLACE INTO listing_locations VALUES(?,?,?,?)',(lid,key,dumps(point),time.time()))
-    return {'state':'resolved' if point else 'not_found','points':[point] if point else [],'tile_url':os.getenv('MAP_TILE_URL','https://tile.openstreetmap.org/{z}/{x}/{y}.png')}
+    return {'state':'resolved' if point else 'not_found','points':[point] if point else [],'style_url':os.getenv('MAP_STYLE_URL','https://tiles.openfreemap.org/styles/liberty')}
 
 @app.get('/healthz')
 async def health():
@@ -549,7 +560,7 @@ async def submit(s:Submission,u=Depends(user)):
         except ValueError:raise HTTPException(400,'Укажите полную корректную дату: день, месяц и год')
     if d['available'] and d['available_until'] and d['available_until']<d['available']:
         raise HTTPException(400,'Дата окончания должна быть не раньше начала')
-    if bool(s.private.document_number)!=bool(s.private.document_password):raise HTTPException(400,'Нужны и номер документа, и пароль — либо оставьте оба пустыми')
+    if s.private.document_number or s.private.document_password:raise HTTPException(409,'Проверка через сервис пока недоступна. Откройте официальный e-cadastre.')
     with db() as c:
         photos=[]
         for p in d['photos']:
@@ -573,7 +584,7 @@ async def submit(s:Submission,u=Depends(user)):
             used=c.execute('SELECT DISTINCT p.sha FROM photos p JOIN listings l ON p.uid=l.uid WHERE l.status=\'active\' AND p.uid<>?',(u['id'],)).fetchall()
             if hashes.intersection(r['sha'] for r in used):reasons.append('Такая фотография есть у другого автора')
         lid=secrets.token_hex(8);now=time.time();status='review' if reasons else 'active'
-        d['document_status']='pending' if s.private.document_number else 'none'
+        d['document_status']='none'
         private=CIPHER.encrypt(dumps(s.private.model_dump()).encode()) if any(s.private.model_dump().values()) else None
         c.execute('INSERT INTO listings(id,uid,payload,status,created,confirmed,fingerprint,private,private_expires,reason,phone_key) VALUES(?,?,?,?,?,?,?,?,?,?,?)',(lid,u['id'],dumps(d),status,now,None,fp,private,now+7*86400,'; '.join(reasons),normalize_phone(d['phone'])))
     with db() as c:c.execute('DELETE FROM drafts WHERE uid=?',(u['id'],))
@@ -983,12 +994,6 @@ async def save_draft(x:DraftIn,u=Depends(user)):
         c.execute('INSERT OR REPLACE INTO drafts VALUES(?,?,?,?)',(u['id'],x.text,dumps(photos),time.time()))
     return {'ok':True}
 
-class VerificationIn(BaseModel):
-    document_number:str=Field(min_length=4,max_length=80)
-    document_password:str=Field(min_length=4,max_length=100)
-    applicant_name:str=Field(min_length=3,max_length=140)
-    consent:bool
-
 class VerificationDecision(BaseModel):
     result:Literal['document_checked','owner_verified','representative_verified','not_confirmed']
     document_valid:bool=False
@@ -1000,22 +1005,9 @@ class VerificationDecision(BaseModel):
     note:str=Field(default='',max_length=500)
 
 @app.post('/api/listings/{lid}/verification')
-async def request_verification(lid:str,x:VerificationIn,u=Depends(user)):
-    r=getrow(lid)
-    if r['uid']!=u['id']:raise HTTPException(403,'Подтвердить может только автор объявления')
-    if r['status'] not in ('active','review'):raise HTTPException(409,'Объявление не опубликовано')
-    if not x.consent:raise HTTPException(400,'Нужно согласие на просмотр документа администратором')
-    rate(u['id'],'verification',5)
-    d=json.loads(r['payload'])
-    payload=x.model_dump(exclude={'consent'})
-    secret=CIPHER.encrypt(dumps(payload).encode())
-    d['document_status']='pending'
-    with db() as c:
-        c.execute('UPDATE listings SET private=?,private_expires=?,payload=? WHERE id=?',
-                  (secret,time.time()+7*86400,dumps(d),lid))
-    enqueue('admin',{'id':lid},'verification:'+lid+':'+secrets.token_hex(4))
-    audit(u['id'],lid,'verification_requested')
-    return {'ok':True,'document_status':'pending'}
+async def request_verification(lid:str,u=Depends(user)):
+    if getrow(lid)['uid']!=u['id']:raise HTTPException(403,'Подтвердить может только автор объявления')
+    raise HTTPException(409,'Проверка через сервис пока недоступна. Откройте официальный e-cadastre.')
 
 @app.post('/api/admin/{lid}/verification')
 async def verification_decision(lid:str,x:VerificationDecision,u=Depends(admin_user)):
@@ -1062,8 +1054,9 @@ def commission_text(l):
     amount=l.get('commission')
     if amount==0:return 'Без комиссии'
     if amount is None:return 'Комиссия не указана'
-    if l.get('commission_type')=='fixed':fee=f"{amount:,} {l.get('commission_currency','AMD')}".replace(',',' ')
-    else:fee=f"{amount}% от аренды за {'сутки' if l.get('commission_basis')=='day' else 'месяц'}"
+    upper=l.get('commission_max');value=f"{amount:,}"+(f"–{upper:,}" if upper is not None and upper>amount else '')
+    if l.get('commission_type')=='fixed':fee=(value+' '+l.get('commission_currency','AMD')).replace(',',' ')
+    else:fee=f"{value}% от аренды за {'сутки' if l.get('commission_basis')=='day' else 'месяц'}"
     return 'Комиссия агенту: '+fee+' · разово'
 
 def public_text(l):

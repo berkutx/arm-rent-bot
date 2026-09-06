@@ -2,12 +2,12 @@
 import asyncio,json
 import pytest
 import server as s
-from test_server import client,body,signed,create
+from test_server import legacy_create,client,body,signed,create
 
 
 def test_same_author_uses_authenticated_creator_not_contact(client):
     first=create(client,address='Первая 1')
-    second=create(client,address='Вторая 2',private={'note':'SECRET','document_number':'DOC-SECRET','document_password':'PASS-SECRET'})
+    second=legacy_create(client,address='Вторая 2',private={'note':'SECRET','document_number':'DOC-SECRET','document_password':'PASS-SECRET'})
     other=client.post('/api/listings',json=body(address='Чужая 3'),headers=signed(43)).json()
     # Both Telegram accounts deliberately have the same username in the fixture.
     assert second['contact']==other['contact']

@@ -30,6 +30,14 @@ def agent_profile(c,uid=42,**fields):
 def create(c,**kw):
     r=c.post('/api/listings',json=body(**kw),headers=signed());assert r.status_code==200,r.text;return r.json()
 
+
+def legacy_create(c,private,**kw):
+    row=create(c,**kw);payload=json.loads(s.getrow(row['id'])['payload'])
+    payload['document_status']='pending'
+    with s.db() as connection:
+        connection.execute('UPDATE listings SET payload=?,private=?,private_expires=? WHERE id=?',(s.dumps(payload),s.CIPHER.encrypt(s.dumps(private).encode()),time.time()+7*86400,row['id']))
+    return s.listing(s.getrow(row['id']),True)
+
 def test_auth_valid_and_tampered():
     raw=signed()['X-Telegram-Init-Data'];assert s.validate_init_data(raw,'test-token')['id']==42
     with pytest.raises(ValueError):s.validate_init_data(raw.replace('Tester','Attacker'),'test-token')
@@ -39,7 +47,7 @@ def test_unauthenticated_cannot_write(client):
     assert client.post('/api/listings',json=body()).status_code==401
 
 def test_public_projection_and_admin_only(client):
-    l=create(client,private={'note':'SECRET-NOTE','document_number':'SECRET-NUMBER','document_password':'SECRET-PASS'})
+    l=legacy_create(client,private={'note':'SECRET-NOTE','document_number':'SECRET-NUMBER','document_password':'SECRET-PASS'})
     assert l['status']=='active' and l['document_status']=='pending'
     public=client.get('/api/listings').text
     assert 'SECRET' not in public and 'private' not in public
@@ -87,8 +95,8 @@ def test_photo_ownership_and_no_url_injection(client):
     x=body();x['listing']['photos']=[{'id':'a'*32,'url':'http://127.0.0.1/admin'}]
     assert client.post('/api/listings',json=x,headers=signed()).status_code==400
 
-def test_doc_requires_both_fields(client):
-    assert client.post('/api/listings',json=body(private={'document_password':'SECRET'}),headers=signed()).status_code==400
+def test_new_submission_rejects_document_credentials(client):
+    assert client.post('/api/listings',json=body(private={'document_password':'SECRET'}),headers=signed()).status_code==409
 
 def test_subscription_private_and_pause(client):
     r=client.post('/api/subscriptions',headers=signed(),json={'name':'Дом','filters':{'period':'month','market':'free'},'frequency':'instant'});assert r.status_code==200
@@ -100,7 +108,7 @@ def test_subscription_private_and_pause(client):
     assert not client.get('/api/subscriptions',headers=signed()).json()[0]['active']
 
 def test_no_private_in_telegram_message(client):
-    l=create(client,private={'note':'SECRET','document_number':'NUMBER','document_password':'PASSWORD'})
+    l=legacy_create(client,private={'note':'SECRET','document_number':'NUMBER','document_password':'PASSWORD'})
     assert not any(x in s.public_text(l) for x in ['SECRET','NUMBER','PASSWORD'])
     assert not any(x in json.dumps(s.keyboard(l)) for x in ['SECRET','NUMBER','PASSWORD','fav:'])
 
@@ -113,3 +121,54 @@ def test_untrusted_callback_rejected(client,monkeypatch):
     asyncio.run(s.receive({'callback_query':{'id':'x','from':{'id':42},'data':'approve:'+l['id']}}))
     assert s.getrow(l['id'])['status']=='review'
     assert calls[-1][1].get('show_alert')
+
+
+@pytest.mark.parametrize('commission,upper,kind',[(None,40,'percent'),(40,30,'percent'),(30,101,'percent'),(101,None,'percent'),(0,40,'percent'),(30,-1,'percent')])
+def test_commission_range_rejects_invalid_bounds(commission,upper,kind):
+    from pydantic import ValidationError
+    values={**body()['listing'],'role':'agent','commission':commission,'commission_max':upper,'commission_type':kind}
+    with pytest.raises(ValidationError):s.ListingIn.model_validate(values)
+
+
+@pytest.mark.parametrize('commission,upper,kind,label',[(30,40,'percent','30–40%'),(40,40,'percent','40%'),(80000,100000,'fixed','80 000–100 000 AMD')])
+def test_commission_range_survives_submission_and_public_text(client,commission,upper,kind,label):
+    agent_profile(client)
+    request=body(commission=commission)
+    request['listing'].update(role='agent',commission_max=upper,commission_type=kind)
+    response=client.post('/api/listings',headers=signed(),json=request)
+    assert response.status_code==200,response.text
+    public=client.get('/api/listings/'+response.json()['id']).json()
+    assert public['commission']==commission and public['commission_max']==upper
+    assert label in s.public_text(public)
+
+
+def test_pet_tariff_is_saved_and_respects_budget_and_registration(client):
+    values=json.loads((s.ROOT/'tests/conditional_price.json').read_text(encoding='utf-8'))
+    request=body();request['listing'].update(values)
+    response=client.post('/api/listings',headers=signed(),json=request)
+    assert response.status_code==200,response.text
+    public=response.json()
+    assert [offer['pets'] for offer in public['prices']]==['no','yes']
+    for filters in ({'pets':True},{'residence_registration':True},{'pets':True,'residence_registration':True}):
+        assert not s.matches(public,{**filters,'max':'420000'})
+        assert s.matches(public,{**filters,'max':'450000'})
+    assert s.matches(public,{'max':'420000'})
+    public['prices'][1]['registration']='no'
+    assert not s.matches(public,{'pets':True,'residence_registration':True})
+    public['prices']=[{'amount':400000,'currency':'AMD','period':'month'}]
+    assert s.matches(public,{'pets':True,'max':'420000'})
+
+
+@pytest.mark.parametrize('listing_pets,offer_pets,expected',[('unknown','yes',True),('no','yes',True),('yes','no',False),('ask','unknown',True),('yes',None,True),('ask',None,True),('unknown','unknown',False),('no',None,False)])
+def test_pet_tariff_overrides_listing_with_legacy_fallback(listing_pets,offer_pets,expected):
+    price={'amount':450000,'currency':'AMD','period':'month'}
+    if offer_pets is not None:price['pets']=offer_pets
+    listing={'status':'active','commission':0,'pets':listing_pets,'prices':[price]}
+    assert s.matches(listing,{'pets':True}) is expected
+
+
+def test_pet_tariff_price_with_unknown_listing_status():
+    listing=json.loads((s.ROOT/'tests/conditional_price.json').read_text(encoding='utf-8'))
+    listing['pets']='unknown'
+    assert not s.matches(listing,{'pets':True,'max':'420000'})
+    assert s.matches(listing,{'pets':True,'max':'450000'})

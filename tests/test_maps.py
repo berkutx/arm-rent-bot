@@ -56,10 +56,15 @@ def test_map_empty_response_cached_and_provider_limit_respected(maps,monkeypatch
  assert maps.get('/api/listings/'+l['id']+'/map').status_code==503
  assert maps.get('/api/listings/'+l['id']+'/map').status_code==503 and len(calls)==1
 
-def test_leaflet_assets_headers_and_no_directory_access(maps):
+def test_maplibre_assets_headers_and_no_directory_access(maps):
  assert maps.get('/').headers['referrer-policy']=='strict-origin-when-cross-origin'
- assert b'Leaflet' in maps.get('/assets/leaflet-1.9.4.js').content
- assert maps.get('/assets/leaflet-1.9.4.css').status_code==200
+ for name in ['maplibre-gl.mjs','maplibre-gl-shared.mjs','maplibre-gl-worker.mjs','maplibre-gl.css']:
+  response=maps.get('/assets/maplibre-6.7.0/'+name)
+  assert response.status_code==200 and len(response.content)>1000
+  assert response.headers['content-type'].startswith('text/css' if name.endswith('.css') else 'text/javascript')
+  assert 'immutable' in response.headers['cache-control']
+ assert maps.get('/assets/maplibre-6.7.0/../../server.py').status_code==404
+ assert maps.get('/assets/maplibre-6.7.0/LICENSE.txt').status_code==404
  assert maps.get('/assets/server.py').status_code==404
 
 

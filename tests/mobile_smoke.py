@@ -183,6 +183,36 @@ with tempfile.TemporaryDirectory(prefix='rent-form-',ignore_cleanup_errors=True)
   page.locator('[data-action=admin-agent]').click()
   expect(page.locator('.sheet-body')).to_contain_text('+37491654321')
   expect(page.locator('.sheet-body')).to_contain_text('Test Agent')
+  page.locator('.sheet-head [data-action=close]').click();page.wait_for_function('!sheetKind')
+  fixtures=[('yes','yes',None,'Можно с питомцами'),('no','no',None,'Без питомцев'),('ask','ask',None,None),('unknown','unknown',None,None),('offer-yes','no','yes','Можно с питомцами'),('offer-no','yes','no','Без питомцев'),('offer-ask','yes','ask','Можно с питомцами'),('offer-unknown','no','unknown','Без питомцев')]
+  pet_rows=[]
+  for key,pets,offer_pets,label in fixtures:
+   offer={'amount':400000,'currency':'AMD','period':'month'}
+   if offer_pets is not None:offer['pets']=offer_pets
+   pet_rows.append({**row,'id':'pets-'+key,'city':'Ереван','address':'Комитаса 18','kind':'apartment','rooms':2,'area':74,'photos':[],'pets':pets,'prices':[offer]})
+  pet_rows.append({**pet_rows[0],'id':'pets-conditional','pets':'ask','prices':[{'amount':400000,'currency':'AMD','period':'month','pets':'no'},{'amount':450000,'currency':'AMD','period':'month','pets':'yes'}]})
+  page.evaluate('(rows)=>{state.remote=rows;state.own=[];state.screen="feed";state.filters=baseFilters();render()}',pet_rows)
+  for layout in ['list','grid']:
+   for width in [320,390,430]:
+    page.set_viewport_size({'width':width,'height':844});page.evaluate('(layout)=>{state.layout=layout;render()}',layout)
+    for key,pets,offer_pets,label in fixtures:
+     marker=page.locator('[data-listing="pets-'+key+'"] .pet-status')
+     if label:
+      expect(marker).to_have_attribute('aria-label',label);expect(marker).to_have_attribute('title',label);expect(marker).to_have_attribute('role','img')
+      expect(marker.locator('svg')).to_have_attribute('aria-hidden','true')
+     else:expect(marker).to_have_count(0)
+    conditional=page.locator('[data-listing="pets-conditional"]')
+    expect(conditional.locator('.price')).to_contain_text('400');expect(conditional.locator('.pet-status')).to_have_attribute('aria-label','Без питомцев')
+    assert page.evaluate('document.documentElement.scrollWidth')==width
+    sizes_before=page.locator('.listing').evaluate_all('(cards)=>cards.map(card=>card.getBoundingClientRect().height)')
+    page.locator('.pet-status').evaluate_all('(icons)=>icons.forEach(icon=>icon.remove())')
+    assert page.locator('.listing').evaluate_all('(cards)=>cards.map(card=>card.getBoundingClientRect().height)')==sizes_before
+    page.evaluate('render()')
+    if width==390:page.screenshot(path=str(OUT/f'pets-{layout}-390.png'),animations='disabled')
+   page.evaluate('state.filters.pets=true;render()')
+   conditional=page.locator('[data-listing="pets-conditional"]')
+   expect(conditional.locator('.price')).to_contain_text('450');expect(conditional.locator('.pet-status')).to_have_attribute('aria-label','Можно с питомцами')
+   page.evaluate('state.filters.pets=false;render()')
   assert not errors,errors
   print(json.dumps({'result':'passed','telegram_album_photos':2,'form_restored':True,'image_uploads_through_server':0,'js_errors':errors,'manual_dates_and_city':True,'no_username_submission':True,'contact':'discussion only'},ensure_ascii=False))
   browser.close()

@@ -39,3 +39,25 @@ assert(!C.matches(paid,{}));
 assert(!C.matches({...paid,role:'owner'},{market:'paid'}));
 assert(!C.matches({...paid,commission:0},{market:'paid'}));
 console.log('Commission market assertions: passed');
+
+for(const filters of [{pets:true},{residence_registration:true},{pets:true,residence_registration:true}]) {
+ assert(!C.matches(conditional,{...filters,max:'420000'}));
+ assert(C.matches(conditional,{...filters,max:'450000'}));
+ assert.equal(C.offer(conditional,filters).amount,450000);
+}
+const separateConditions={...conditional,prices:conditional.prices.map(p=>({...p,registration:p.pets==='yes'?'no':'yes'}))};
+assert.equal(C.offer(separateConditions,{pets:true,residence_registration:true}),null);
+assert(!C.matches(separateConditions,{pets:true,residence_registration:true}));
+const legacyPetOffer={...conditional,prices:[{amount:400000,currency:'AMD',period:'month'}]};
+assert(C.matches(legacyPetOffer,{pets:true,max:'420000'}));
+console.log('Conditional pet-price assertions: passed');
+
+for(const [listingPets,offerPets,expected] of [['unknown','yes',true],['no','yes',true],['yes','no',false],['ask','unknown',true],['yes',undefined,true],['ask',undefined,true],['unknown','unknown',false],['no',undefined,false]]) {
+ const l={...conditional,pets:listingPets,prices:[{amount:450000,currency:'AMD',period:'month',pets:offerPets}]};
+ assert.equal(C.matches(l,{pets:true}),expected);
+ assert.equal(!!C.offer(l,{pets:true}),expected);
+}
+assert.equal(C.offer({...conditional,pets:'no'},{pets:true}).amount,450000);
+assert(!C.matches({...conditional,pets:'unknown'},{pets:true,max:'420000'}));
+assert(C.matches({...conditional,pets:'unknown'},{pets:true,max:'450000'}));
+console.log('Pet tariff override and fallback assertions: passed');

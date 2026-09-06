@@ -242,6 +242,10 @@ details .details-text { padding:0 15px 17px; }
 .layout-switch button[aria-pressed=true] {background:var(--surface);color:var(--accent);font-weight:650}
 .listing-body {padding:13px}.listing-main {width:100%;display:block;min-width:0;min-height:44px}
 .listing-address {font-size:13px;margin-top:5px}.listing-title {font-size:14px;margin-top:3px}
+.listing-title {display:flex;align-items:center;gap:6px}
+.housing-meta {min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pet-status {display:inline-flex;flex:none;color:var(--muted)}
+.pet-status svg {width:16px;height:16px}
 .commission-note {font-size:12px;margin:7px 0 10px;color:var(--muted);line-height:1.4}
 .paid-fee {color:var(--warn);font-weight:600}
 .commission-edit {text-align:left;width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid var(--border);border-radius:13px;padding:12px;margin:12px 0;background:var(--surface)}
@@ -341,11 +345,16 @@ details .details-text { padding:0 15px 17px; }
 .map-sheet .sheet-body {display:grid;gap:12px}
 #rental-map {height:clamp(240px,48dvh,420px);width:100%;border-radius:12px;color:#1c2927;isolation:isolate}
 #rental-map[hidden] {display:none}
-#rental-map .leaflet-control-attribution {font-size:11px;background:#fffe}
-#rental-map .leaflet-control-attribution a {color:#175583}
+#rental-map .maplibregl-ctrl-attrib {font-size:10px;background:#fffe;max-width:100%;line-height:1.4;padding:3px 5px}
+#rental-map .maplibregl-ctrl-attrib a {color:#175583}
+#rental-map .maplibregl-ctrl-group button {width:40px;height:40px}
+#rental-map .maplibregl-popup-content {font:13px/1.4 var(--font);color:#1c2927}
+#rental-map .map-location {width:44px;height:44px;padding:0;border:0;background:transparent;cursor:pointer}
+#rental-map .map-location:after {content:"";position:absolute;inset:11px;border:3px solid #fff;border-radius:50%;background:#137d63;box-shadow:0 1px 6px #0008}
+#rental-map .map-location.approximate:after {background:#137d6333;border:3px dashed #137d63}
+#map-external {justify-self:start;font-size:13px}
 .map-credit {font-size:11px;color:var(--muted)}
 
-#rental-map .leaflet-overlay-pane > svg {width:auto;height:auto}
 
 .location-filter {display:flex;align-items:center;gap:8px;text-align:left;min-width:0;padding:0;flex:1}
 .location-filter>span {min-width:0}.location-filter strong {display:block;font-size:17px;line-height:1.3;overflow-wrap:anywhere}

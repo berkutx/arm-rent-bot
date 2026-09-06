@@ -75,8 +75,12 @@ class SourceStore:
         captions=[m for m in messages if m['text'].strip()]
         root=next((m for m in original if m['text'].strip()),original[0] if original else None)
         deleted=not messages or (root is not None and not any(m['id']==root['id'] for m in messages))
+        discussion=None
+        if root and 'reply_to' in root:
+            target=root['reply_to']
+            discussion=bool(root['topic'] and target and target!=root['topic'] and target not in {m['id'] for m in original})
         revision=digest([(r['mid'],r['payload'],r['deleted']) for r in rows])
-        return {'key':key,'revision':revision,'messages':messages,'root':root,'text':'\n\n'.join(m['text'] for m in captions),'deleted':deleted}
+        return {'key':key,'revision':revision,'messages':messages,'root':root,'text':'\n\n'.join(m['text'] for m in captions),'deleted':deleted,'discussion':discussion}
 
     def pending(self,now=None):
         with self.db() as c:r=c.execute('SELECT post_key FROM source_dirty WHERE due<=? ORDER BY due LIMIT 1',(now or time.time(),)).fetchone()
@@ -112,6 +116,7 @@ def normalize_message(message,channel,username,topics):
     photo=message.photo;size=max((p for p in getattr(photo,'sizes',[]) if getattr(p,'w',0)>0 and getattr(p,'h',0)>0),key=lambda p:p.w*p.h,default=None)
     media={'id':str(photo.id),'width':size.w,'height':size.h} if photo and size else None
     return {'channel':channel,'username':username,'id':message.id,'topic':topic,'market':topics[topic],
+            'reply_to':getattr(message.reply_to,'reply_to_msg_id',0) or 0,'reply_top':getattr(message.reply_to,'reply_to_top_id',0) or 0,
             'date':message.date.timestamp(),'edited':message.edit_date.timestamp() if message.edit_date else None,
             'group':str(message.grouped_id) if message.grouped_id else '', 'text':message.raw_text or '',
             'author':author,'contact':(getattr(sender,'username','') or '') if author and getattr(sender,'id',0)==author else '', 'photo':media}

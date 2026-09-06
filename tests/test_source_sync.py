@@ -60,6 +60,7 @@ def test_normalize_topic_and_authentic_poster():
     msg=telegram_message(reply_to=types.MessageReplyHeader(forum_topic=True,reply_to_msg_id=999,reply_to_top_id=55))
     d=normalize_message(msg,-1000000000123,'source_fixture',{55:'free'})
     assert d['topic']==55 and d['author']==42 and d['contact']=='author_fixture'
+    assert d['reply_to']==999 and d['reply_top']==55
     assert normalize_message(msg,-1000000000123,'source_fixture',{66:'paid'}) is None
     msg.from_id=types.PeerChannel(999)
     d=normalize_message(msg,-1000000000123,'source_fixture',{55:'free'})
@@ -200,3 +201,65 @@ def test_photo_only_change_keeps_fields_and_deleted_photo_is_not_public(client,s
     assert catalog.process_one()
     latest=s.listing(s.getrow(lid));assert latest['prices']==old['prices'] and latest['photos'][0]['id']!=pid
     assert client.get('/media/'+pid+'.jpg').status_code==404
+
+
+@pytest.mark.parametrize('metadata',[{}, {'reply_to':55,'reply_top':0}])
+def test_text_only_roots_and_unknown_reply_metadata_stay_in_review(store,catalog,metadata):
+    store.ingest(message(**metadata),now=time.time()-3)
+    snap=store.snapshot('-1000000000123:m1')
+    assert snap['discussion'] is (False if metadata else None)
+    assert catalog.process_one()
+    assert catalog.previous(snap['key'])['state']=='review'
+
+
+def test_album_internal_reply_survives_photo_deletion(store,catalog):
+    store.ingest(message(group='album',reply_to=2,reply_top=55),now=time.time()-3)
+    store.ingest(message(2,group='album',text='',reply_to=55,reply_top=0,photo={'id':'photo','width':800,'height':600}),now=time.time()-3)
+    key='-1000000000123:galbum'
+    assert store.snapshot(key)['discussion'] is False
+    assert catalog.process_one() and catalog.previous(key)['state']=='review'
+    store.delete(-1000000000123,[2])
+    assert store.snapshot(key)['discussion'] is False
+    assert catalog.process_one() and catalog.previous(key)['state']=='review'
+
+
+def test_reconcile_backfills_reply_metadata_without_hiding_replies_from_review(client,store,catalog):
+    from test_server import signed
+    comments=[telegram_message(1,message='Добавьте номер дома',reply_to=types.MessageReplyHeader(forum_topic=True,reply_to_msg_id=999,reply_to_top_id=55)),telegram_message(2)]
+    for msg in comments:
+        old=normalize_message(msg,-1000000000123,'source_fixture',{55:'free'})
+        old.pop('reply_to');old.pop('reply_top')
+        store.ingest(old,now=time.time()-600)
+        catalog.hold(store.snapshot('-1000000000123:m'+str(msg.id)))
+    assert len(client.get('/api/admin/source/posts',headers=signed(99)).json())==2
+    before=store.snapshot('-1000000000123:m1')
+    class Fake:
+        async def get_messages(self,*args,**kwargs):return comments
+    entity=types.Channel(id=123,title='Source',photo=types.ChatPhotoEmpty(),date=datetime.now(timezone.utc),username='source_fixture')
+    asyncio.run(SourceReader(store,Fake(),entity,{55:'free'}).reconcile())
+    after=store.snapshot(before['key'])
+    assert after['revision']!=before['revision'] and after['root']['date']==before['root']['date']
+    assert after['root']['edited']==before['root']['edited'] and after['discussion'] is True
+    with s.db() as c:c.execute('UPDATE source_dirty SET due=0')
+    while catalog.process_one():pass
+    assert catalog.previous(before['key'])['state']=='review'
+    queue=client.get('/api/admin/source/posts',headers=signed(99)).json()
+    assert {post['key'] for post in queue}=={'-1000000000123:m1','-1000000000123:m2'}
+    store.delete(-1000000000123,[1]);assert catalog.process_one()
+    assert catalog.previous(before['key'])['state']=='deleted'
+    with s.db() as c:assert c.execute('SELECT COUNT(*) FROM jobs').fetchone()[0]==0
+
+
+@pytest.mark.parametrize('status',['active','rented','banned','source_staged'])
+def test_reply_metadata_does_not_hide_existing_manual_listing(store,catalog,status):
+    store.set('activated',status!='source_staged')
+    lid,m=publish_source(store,catalog)
+    with s.db() as c:c.execute('UPDATE listings SET status=?,reason=?,view_count=7 WHERE id=?',(status,'Причина бана' if status=='banned' else '',lid))
+    created=s.getrow(lid)['created']
+    store.ingest({**m,'reply_to':999,'reply_top':55},now=time.time()-3)
+    assert catalog.process_one()
+    row=s.getrow(lid)
+    assert row['status']==status and row['created']==created and row['view_count']==7
+    assert row['reason']==('Причина бана' if status=='banned' else '')
+    store.delete(m['channel'],[m['id']]);assert catalog.process_one()
+    assert s.getrow(lid)['status']==('banned' if status=='banned' else 'source_deleted')

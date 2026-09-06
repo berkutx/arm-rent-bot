@@ -2,7 +2,7 @@ import asyncio,json,time
 from fastapi.responses import Response
 import pytest
 import server as s
-from test_server import client,create,signed
+from test_server import legacy_create,client,create,signed
 
 
 def draft(client,lid,uid=43):
@@ -128,7 +128,7 @@ def test_existing_report_preserved_without_invented_reason(client):
 
 
 def test_deep_links_and_review_buttons_use_supported_launch(client,telegram):
-    l=create(client,private={'document_number':'PRIVATE_NUMBER','document_password':'PRIVATE_PASSWORD'})
+    l=legacy_create(client,private={'document_number':'PRIVATE_NUMBER','document_password':'PRIVATE_PASSWORD'})
     asyncio.run(s.process_job({'kind':'admin','payload':json.dumps({'id':l['id']})}))
     assert telegram[-1][1]['reply_markup']['inline_keyboard']==[[s.app_button('Открыть задачу','review_'+l['id'])]]
     for target in ['l_'+l['id'],'l_s123456','report_'+'a'*16,'admin']:

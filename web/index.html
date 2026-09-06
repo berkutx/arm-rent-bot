@@ -670,6 +670,10 @@ details .details-text { padding:0 15px 17px; }
 .layout-switch button[aria-pressed=true] {background:var(--surface);color:var(--accent);font-weight:650}
 .listing-body {padding:13px}.listing-main {width:100%;display:block;min-width:0;min-height:44px}
 .listing-address {font-size:13px;margin-top:5px}.listing-title {font-size:14px;margin-top:3px}
+.listing-title {display:flex;align-items:center;gap:6px}
+.housing-meta {min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pet-status {display:inline-flex;flex:none;color:var(--muted)}
+.pet-status svg {width:16px;height:16px}
 .commission-note {font-size:12px;margin:7px 0 10px;color:var(--muted);line-height:1.4}
 .paid-fee {color:var(--warn);font-weight:600}
 .commission-edit {text-align:left;width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid var(--border);border-radius:13px;padding:12px;margin:12px 0;background:var(--surface)}
@@ -769,11 +773,16 @@ details .details-text { padding:0 15px 17px; }
 .map-sheet .sheet-body {display:grid;gap:12px}
 #rental-map {height:clamp(240px,48dvh,420px);width:100%;border-radius:12px;color:#1c2927;isolation:isolate}
 #rental-map[hidden] {display:none}
-#rental-map .leaflet-control-attribution {font-size:11px;background:#fffe}
-#rental-map .leaflet-control-attribution a {color:#175583}
+#rental-map .maplibregl-ctrl-attrib {font-size:10px;background:#fffe;max-width:100%;line-height:1.4;padding:3px 5px}
+#rental-map .maplibregl-ctrl-attrib a {color:#175583}
+#rental-map .maplibregl-ctrl-group button {width:40px;height:40px}
+#rental-map .maplibregl-popup-content {font:13px/1.4 var(--font);color:#1c2927}
+#rental-map .map-location {width:44px;height:44px;padding:0;border:0;background:transparent;cursor:pointer}
+#rental-map .map-location:after {content:"";position:absolute;inset:11px;border:3px solid #fff;border-radius:50%;background:#137d63;box-shadow:0 1px 6px #0008}
+#rental-map .map-location.approximate:after {background:#137d6333;border:3px dashed #137d63}
+#map-external {justify-self:start;font-size:13px}
 .map-credit {font-size:11px;color:var(--muted)}
 
-#rental-map .leaflet-overlay-pane > svg {width:auto;height:auto}
 
 .location-filter {display:flex;align-items:center;gap:8px;text-align:left;min-width:0;padding:0;flex:1}
 .location-filter>span {min-width:0}.location-filter strong {display:block;font-size:17px;line-height:1.3;overflow-wrap:anywhere}
@@ -827,7 +836,7 @@ const DISTRICTS=[
 ];
 const CITIES=['Ереван','Дилижан','Севан','Цахкадзор','Гюмри','Ванадзор','Абовян','Аштарак','Джермук','Прошян'];
 const norm=s=>String(s||'').toLowerCase().replace(/ё/g,'е').replace(/\s+/g,' ').trim();
-function offer(l,f={}){return(l.prices||[]).find(p=>(!f.period||p.period===f.period)&&(!f.currency||p.currency===f.currency)&&(!f.residence_registration||p.registration!=='no'))||null;}
+function offer(l,f={}){return(l.prices||[]).find(p=>(!f.period||p.period===f.period)&&(!f.currency||p.currency===f.currency)&&(!f.residence_registration||p.registration!=='no')&&(!f.pets||['yes','ask'].includes(['yes','no'].includes(p.pets)?p.pets:l.pets)))||null;}
 function matches(l,f={}){
  if(l.status!=='active')return false;
  if(f.city&&l.city!==f.city)return false;if(f.kind&&l.kind!==f.kind)return false;
@@ -836,7 +845,6 @@ function matches(l,f={}){
  if((f.market||'free')==='free'&&l.commission!==0)return false;
  if(f.market==='paid'&&!(l.role==='agent'&&l.commission>0))return false;
  if(f.owner&&l.role!=='owner')return false;
- if(f.pets&&!['yes','ask'].includes(l.pets))return false;
  if(f.contract&&l.contract!=='yes')return false;
  if(f.residence_registration&&!['yes','ask'].includes(l.residence_registration))return false;
  if(f.verified&&!['owner_verified','representative_verified'].includes(l.document_status))return false;
@@ -899,6 +907,7 @@ const paths = {
   plus:'M12 5v14M5 12h14',
   bell:'M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4',
   back:'M19 12H5M10 7l-5 5 5 5', close:'M6 6l12 12M18 6L6 18',
+  paw:'M12 12c-2.5 0-3 2.4-4.5 3.7-1.7 1.5-.7 4.1 1.4 4.1 1.2 0 2-.7 3.1-.7s1.9.7 3.1.7c2.1 0 3.1-2.6 1.4-4.1C15 14.4 14.5 12 12 12ZM10.2 5.8a1.7 2.2 0 1 1-3.4 0 1.7 2.2 0 1 1 3.4 0ZM17.2 5.8a1.7 2.2 0 1 1-3.4 0 1.7 2.2 0 1 1 3.4 0ZM6.5 10a1.6 2 0 1 1-3.2 0 1.6 2 0 1 1 3.2 0ZM20.7 10a1.6 2 0 1 1-3.2 0 1.6 2 0 1 1 3.2 0Z',
   photo:'M4 4h16v16H4zM4 16l5-5 4 4 3-3 4 4M16 8h.01',
   check:'M5 12l4 4L19 6', down:'M6 9l6 6 6-6', right:'M9 5l7 7-7 7',
   edit:'M16 3l5 5-12 12-6 1 1-6zM13 6l5 5',
@@ -909,6 +918,7 @@ const paths = {
   author:'M16 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0M4 21v-2a8 8 0 0 1 16 0v2',
   send:'M22 2L9 15M22 2l-7 20-6-7-7-6z',
 };
+paths['paw-off']=paths.paw+'M3 3l18 18';
 const icon = n => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${paths[n] || paths.home}"/></svg>`;
 const esc = v => String(v ?? '').replace(/[&<>"']/g, x => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[x]));
 const money = n => new Intl.NumberFormat('ru-RU').format(n);
@@ -949,6 +959,13 @@ function housing(l) {
 function priceHTML(l, filters=state.filters) {
   const p = C.offer(l,filters) || l.prices?.[0];
   return p ? `${p.amount_max?'от ':''}${money(p.amount)} ${esc(sym(p.currency))} <small>/ ${unit(p.period)}</small>` : 'Укажите цену';
+}
+function petStatusHTML(l) {
+  const chosen=C.offer(l,state.filters)||l.prices?.[0];
+  const pets=['yes','no'].includes(chosen?.pets)?chosen.pets:l.pets;
+  if(!['yes','no'].includes(pets))return '';
+  const label=pets==='yes'?'Можно с питомцами':'Без питомцев';
+  return `<span class="pet-status" role="img" aria-label="${label}" title="${label}">${icon(pets==='yes'?'paw':'paw-off')}</span>`;
 }
 const shortDate = d => d ? new Date(d.slice(0,10)+'T12:00:00').toLocaleDateString('ru-RU',{day:'numeric',month:'short'}) : '';
 const niceStatus = l => ({active:'Актуально · в ленте',review:'На модерации',rented:'Сдано',rejected:'Не опубликовано',banned:'Заблокировано',source_deleted:'Удалено в Telegram',source_staged:'Готово к импорту'})[l.status] || l.status;
@@ -1037,7 +1054,8 @@ function layoutSwitch() {
 function commissionLabel(l) {
   if(l.commission===0)return 'Без комиссии';
   if(!(l.commission>0))return 'Укажите комиссию';
-  const fee=l.commission_type==='fixed'?`${money(l.commission)} ${sym(l.commission_currency||'AMD')}`:`${l.commission}% от аренды за ${l.commission_basis==='day'?'сутки':'месяц'}`;
+  const amount=money(l.commission)+(l.commission_max>l.commission?'–'+money(l.commission_max):'');
+  const fee=l.commission_type==='fixed'?`${amount} ${sym(l.commission_currency||'AMD')}`:`${amount}% от аренды за ${l.commission_basis==='day'?'сутки':'месяц'}`;
   return 'Агенту '+fee+' · разово';
 }
 function commissionHTML(l) {return `${l.role==='agent'&&l.agent_affiliation?`<p class="agent-affiliation">${esc(l.agent_affiliation)}</p>`:''}<p class="commission-note ${l.commission>0?'paid-fee':''}">${esc(commissionLabel(l))}</p>`;}
@@ -1049,10 +1067,10 @@ function albumHTML(l,compact=false) {
   return `<div class="photo-album photos-${visible.length}">${visible.map((p,i)=>`<button class="photo-tile" data-action="gallery" data-id="${esc(l.id)}" data-photo-index="${i}" aria-label="Фото ${i+1} из ${photos.length}: ${esc(l.address)}"><img src="${esc(thumbPhoto(p))}" data-full-src="${esc(safePhoto(p))}" alt="Фото жилья ${i+1}" loading="lazy" decoding="async"><span class="photo-missing">Фото не загрузилось</span>${i===0?`<span class="album-count">${photos.length} фото ${icon('photo')}</span>`:i===2&&photos.length>3?`<span class="album-count">+${photos.length-3}</span>`:''}</button>`).join('')}</div>`;
 }
 function card(l) {
-  const hint=l.pets==='yes'?'Можно с питомцем':l.residence_registration==='yes'?'Регистрация возможна':'';
+  const hint=l.residence_registration==='yes'?'Регистрация возможна':'';
   const grid=state.layout==='grid',photos=`<div class="card-photos">${albumHTML(l,grid)}${mapButton(l)}</div>`;
   return `<article class="listing" data-listing="${esc(l.id)}"><div class="listing-body">
-    ${grid?photos:''}<button class="listing-main" data-action="detail" data-id="${esc(l.id)}"><div class="price">${priceHTML(l)}</div><div class="listing-title">${esc(housing(l))}${l.area?' · '+esc(l.area)+' м²':''}</div><div class="listing-address">${esc([l.city!==state.filters.city?l.city:'',l.address].filter(Boolean).join(' · '))}</div></button>
+    ${grid?photos:''}<button class="listing-main" data-action="detail" data-id="${esc(l.id)}"><div class="price">${priceHTML(l)}</div><div class="listing-title"><span class="housing-meta">${esc(housing(l))}${l.area?' · '+esc(l.area)+' м²':''}</span>${petStatusHTML(l)}</div><div class="listing-address">${esc([l.city!==state.filters.city?l.city:'',l.address].filter(Boolean).join(' · '))}</div></button>
     ${l.commission>0?`<p class="commission-note paid-fee">${esc(commissionLabel(l))}</p>`:''}${grid?'':photos}
     <div class="card-top">${ageHTML(l)}</div>
     <div class="card-extra">${travelHTML(l)}${availabilityHTML(l)}${hint?`<p class="availability-note">${esc(hint)}</p>`:''}</div>
@@ -1204,7 +1222,7 @@ async function detail(id,cached=false) {
   void recordView(l);
 }
 function mineSheet() {
-  showSheet('Мои объявления',(state.user?.is_admin?'<button class="choice-row" data-action="open-admin"><span>Модерация</span>'+icon('right')+'</button>':'')+(state.own.map(l=>`<article class="my-row" data-mine-id="${esc(l.id)}"><h3>${esc(l.city)} · ${esc(l.address)}</h3><div class="card-metrics">${ageHTML(l)}${viewsHTML(l)}</div><p>${priceHTML(l,{})}</p><p class="listing-status status-${esc(l.status)}">${esc(niceStatus(l))}</p>${l.ban_reason||l.review_reason?`<div class="moderation-reason"><strong>${l.status==='banned'?'Причина блокировки':'Комментарий модератора'}</strong><p>${esc(l.ban_reason||l.review_reason)}</p></div>`:''}${['active','rented'].includes(l.status)?`<button class="text-button" data-action="detail" data-id="${esc(l.id)}">Открыть карточку</button><button class="button secondary" data-action="status" data-id="${esc(l.id)}" data-status="${l.status==='active'?'rented':'active'}">${l.status==='active'?'Отметить «Сдано»':'Снова актуально'}</button>`:''}${['active','review'].includes(l.status)?`<button class="text-button" data-action="verify" data-id="${esc(l.id)}">${l.document_status==='pending'?'Документ на проверке':'Подтвердить собственность'}</button>`:''}</article>`).join('')||'<p class="note">Пока нет объявлений.</p>'),`<button class="button" data-action="nav" data-id="add">${icon('plus')}Подать объявление</button>`,'mine');
+  showSheet('Мои объявления',(state.user?.is_admin?'<button class="choice-row" data-action="open-admin"><span>Модерация</span>'+icon('right')+'</button>':'')+(state.own.map(l=>`<article class="my-row" data-mine-id="${esc(l.id)}"><h3>${esc(l.city)} · ${esc(l.address)}</h3><div class="card-metrics">${ageHTML(l)}${viewsHTML(l)}</div><p>${priceHTML(l,{})}</p><p class="listing-status status-${esc(l.status)}">${esc(niceStatus(l))}</p>${l.ban_reason||l.review_reason?`<div class="moderation-reason"><strong>${l.status==='banned'?'Причина блокировки':'Комментарий модератора'}</strong><p>${esc(l.ban_reason||l.review_reason)}</p></div>`:''}${['active','rented'].includes(l.status)?`<button class="text-button" data-action="detail" data-id="${esc(l.id)}">Открыть карточку</button><button class="button secondary" data-action="status" data-id="${esc(l.id)}" data-status="${l.status==='active'?'rented':'active'}">${l.status==='active'?'Отметить «Сдано»':'Снова актуально'}</button>`:''}</article>`).join('')||'<p class="note">Пока нет объявлений.</p>'),`<button class="button" data-action="nav" data-id="add">${icon('plus')}Подать объявление</button>`,'mine');
 }
 async function refreshAdmin() {
   if(state.adminTab==='import'){[state.sourceStatus,state.sourcePosts]=await Promise.all([api('/api/admin/source'),api('/api/admin/source/posts')]);return;}
@@ -1212,7 +1230,7 @@ async function refreshAdmin() {
 }
 function admin() {
   if (!state.user?.is_admin) return empty('Доступ только администратору','','К ленте');
-  return `<h1>Объявления</h1><div class="admin-tabs">${[['review','Проверка'],['reports','Жалобы'],['all','Все'],['banned','Баны'],...(state.sourceEnabled?[['import','Импорт']]:[])].map(([k,t])=>`<button class="choice ${state.adminTab===k?'active':''}" data-action="admin-tab" data-id="${k}" aria-pressed="${state.adminTab===k}">${t}</button>`).join('')}</div><div class="stack">${state.adminTab==='import'?sourceAdminHTML():state.adminTab==='reports'?reportsHTML():state.queue.map(l=>`<article class="my-row" data-admin-id="${esc(l.id)}"><h3>${esc(l.city)} · ${esc(l.address)}</h3><p>${priceHTML(l,{})}</p><p class="listing-status status-${esc(l.status)}">${esc(niceStatus(l))}</p>${l.ban_reason||l.review_reason?`<div class="moderation-reason">${esc(l.ban_reason||l.review_reason)}</div>`:''}${l.description?`<details><summary>Описание ${icon('down')}</summary><p class="details-text">${esc(l.description)}</p></details>`:''}${l.document_status==='pending'?`<button class="button secondary" data-action="review-doc" data-id="${esc(l.id)}">Проверить документ</button>`:''}${adminAgentButton(l)}<div class="moderation-actions">${l.status==='banned'?`<button class="button secondary" data-action="unban" data-id="${esc(l.id)}">Снять блокировку</button>`:`${['review','rejected'].includes(l.status)?`<button class="button" data-action="approve" data-id="${esc(l.id)}">Одобрить</button>`:''}<button class="button secondary danger" data-action="ban" data-id="${esc(l.id)}">Заблокировать с причиной</button>`}</div></article>`).join('')||'<p class="note">Объявлений в этом разделе нет.</p>'}</div>`;
+  return `<h1>Объявления</h1><div class="admin-tabs">${[['review','Проверка'],['reports','Жалобы'],['all','Все'],['banned','Баны'],...(state.sourceEnabled?[['import','Импорт']]:[])].map(([k,t])=>`<button class="choice ${state.adminTab===k?'active':''}" data-action="admin-tab" data-id="${k}" aria-pressed="${state.adminTab===k}">${t}</button>`).join('')}</div><div class="stack">${state.adminTab==='import'?sourceAdminHTML():state.adminTab==='reports'?reportsHTML():state.queue.map(l=>`<article class="my-row" data-admin-id="${esc(l.id)}"><h3>${esc(l.city)} · ${esc(l.address)}</h3><p>${priceHTML(l,{})}</p><p class="listing-status status-${esc(l.status)}">${esc(niceStatus(l))}</p>${l.ban_reason||l.review_reason?`<div class="moderation-reason">${esc(l.ban_reason||l.review_reason)}</div>`:''}${l.description?`<details><summary>Описание ${icon('down')}</summary><p class="details-text">${esc(l.description)}</p></details>`:''}${adminAgentButton(l)}<div class="moderation-actions">${l.status==='banned'?`<button class="button secondary" data-action="unban" data-id="${esc(l.id)}">Снять блокировку</button>`:`${['review','rejected'].includes(l.status)?`<button class="button" data-action="approve" data-id="${esc(l.id)}">Одобрить</button>`:''}<button class="button secondary danger" data-action="ban" data-id="${esc(l.id)}">Заблокировать с причиной</button>`}</div></article>`).join('')||'<p class="note">Объявлений в этом разделе нет.</p>'}</div>`;
 }
 function sourceHistoryHTML(l){
   if(!l.history?.length)return '';
@@ -1227,12 +1245,17 @@ async function sourcePostSheet(key){
   state.sourcePosts=await api('/api/admin/source/posts');
   const post=state.sourcePosts.find(p=>p.key===key);if(!post)return toast('Список обновился. Откройте пост из очереди импорта.');
   state.sourcePost=post;const d=post.fields||{},price=d.prices?.[0]||{},paid=post.market==='paid';
-  showSheet('Пост из Telegram',`<div class="stack"><div class="details-text source-text">${esc(post.text)}</div><a class="button secondary" href="${esc(post.source_url)}" target="_blank" rel="noopener noreferrer">Открыть оригинал · ${post.photo_count} фото</a><form id="source-form" class="stack"><div><label for="source-city">Город</label><input id="source-city" name="city" value="${esc(d.city||'')}" required maxlength="80"></div><div><label for="source-address">Адрес</label><input id="source-address" name="address" value="${esc(d.address||'')}" required minlength="3" maxlength="180"></div><div><label for="source-district">Район Еревана</label><select id="source-district" name="district">${selectOptions([['','Уточняется'],...C.DISTRICTS.map(x=>[x.name,x.name])],d.district||'')}</select></div><div class="field-grid"><div><label for="source-kind">Жильё</label><select id="source-kind" name="kind" required>${selectOptions([['','Выберите'],['apartment','Квартира'],['house','Дом'],['room','Комната'],['aparthotel','Апарт-отель']],d.kind||'')}</select></div><div><label for="source-rooms">Комнаты</label><input id="source-rooms" name="rooms" type="number" min="0" max="20" value="${d.rooms??''}"></div></div><div><label for="source-price">Цена</label><input id="source-price" name="amount" type="number" min="1" max="1000000000" required value="${price.amount||''}"></div><div class="field-grid"><select name="currency" aria-label="Валюта" required>${selectOptions([['','Валюта'],['AMD','֏'],['USD','$']],price.currency||'')}</select><select name="period" aria-label="Период" required>${selectOptions([['','Период'],['month','В месяц'],['day','В сутки']],price.period||'')}</select></div>${paid?`<div><label for="source-fee">Комиссия</label><input id="source-fee" name="commission" type="number" min="1" max="1000000000" required value="${d.commission||''}"></div><select name="fee_unit" aria-label="Расчёт комиссии">${selectOptions([['percent_month','% от месяца'],['percent_day','% от суток'],['AMD','Фиксированно ֏'],['USD','Фиксированно $']],d.commission_type==='fixed'?d.commission_currency:d.commission_basis==='day'?'percent_day':'percent_month')}</select>`:`<select name="role" aria-label="Кто разместил">${selectOptions([['unknown','Автор не указал роль'],['owner','Собственник'],['tenant','Съезжающий жилец'],['agent','Агент']],d.role||'unknown')}</select>`}</form><button class="text-button danger" data-action="ignore-source" data-id="${esc(key)}">Пропустить пост</button></div>`,`<button class="button" form="source-form" type="submit">Сохранить объявление</button>`,'source-post',key);
+  showSheet('Пост из Telegram',`<div class="stack"><div class="details-text source-text">${esc(post.text)}</div><a class="button secondary" href="${esc(post.source_url)}" target="_blank" rel="noopener noreferrer">Открыть оригинал · ${post.photo_count} фото</a><form id="source-form" class="stack"><div><label for="source-city">Город</label><input id="source-city" name="city" value="${esc(d.city||'')}" required maxlength="80"></div><div><label for="source-address">Адрес</label><input id="source-address" name="address" value="${esc(d.address||'')}" required minlength="3" maxlength="180"></div><div><label for="source-district">Район Еревана</label><select id="source-district" name="district">${selectOptions([['','Уточняется'],...C.DISTRICTS.map(x=>[x.name,x.name])],d.district||'')}</select></div><div class="field-grid"><div><label for="source-kind">Жильё</label><select id="source-kind" name="kind" required>${selectOptions([['','Выберите'],['apartment','Квартира'],['house','Дом'],['room','Комната'],['aparthotel','Апарт-отель']],d.kind||'')}</select></div><div><label for="source-rooms">Комнаты</label><input id="source-rooms" name="rooms" type="number" min="0" max="20" value="${d.rooms??''}"></div></div><div><label for="source-price">Цена</label><input id="source-price" name="amount" type="number" min="1" max="1000000000" required value="${price.amount||''}"></div><div class="field-grid"><select name="currency" aria-label="Валюта" required>${selectOptions([['','Валюта'],['AMD','֏'],['USD','$']],price.currency||'')}</select><select name="period" aria-label="Период" required>${selectOptions([['','Период'],['month','В месяц'],['day','В сутки']],price.period||'')}</select></div>${paid?`<div><label for="source-fee">Комиссия</label><input id="source-fee" name="commission" type="number" min="1" max="1000000000" required value="${d.commission||''}"></div><div><label for="source-fee-max">Комиссия до <small>необязательно</small></label><input id="source-fee-max" name="commission_max" type="number" min="${d.commission||1}" max="1000000000" value="${d.commission_max??''}"></div><select name="fee_unit" aria-label="Расчёт комиссии">${selectOptions([['percent_month','% от месяца'],['percent_day','% от суток'],['AMD','Фиксированно ֏'],['USD','Фиксированно $']],d.commission_type==='fixed'?d.commission_currency:d.commission_basis==='day'?'percent_day':'percent_month')}</select>`:`<select name="role" aria-label="Кто разместил">${selectOptions([['unknown','Автор не указал роль'],['owner','Собственник'],['tenant','Съезжающий жилец'],['agent','Агент']],d.role||'unknown')}</select>`}</form><button class="text-button danger" data-action="ignore-source" data-id="${esc(key)}">Пропустить пост</button></div>`,`<button class="button" form="source-form" type="submit">Сохранить объявление</button>`,'source-post',key);
+  updateSourceFeeBounds();
+}
+function updateSourceFeeBounds(){
+  const form=$('#source-form'),lower=form?.elements.commission,upper=form?.elements.commission_max;if(!lower||!upper)return;
+  lower.max=upper.max=['AMD','USD'].includes(form.elements.fee_unit.value)?'1000000000':'100';upper.min=lower.value||'1';
 }
 async function submitSource(form,x){
   const post=state.sourcePost,button=$('button[form=source-form]'),fixed=['AMD','USD'].includes(x.fee_unit);button.disabled=true;
   try{
-    const fields={...post.fields,city:x.city.trim(),address:x.address.trim(),district:x.city.trim()==='Ереван'?x.district:'',kind:x.kind,rooms:x.rooms===''?null:Number(x.rooms),prices:[{amount:Number(x.amount),currency:x.currency,period:x.period}],role:post.market==='paid'?'agent':x.role,commission:post.market==='paid'?Number(x.commission):0,commission_type:fixed?'fixed':'percent',commission_currency:fixed?x.fee_unit:'AMD',commission_basis:x.fee_unit==='percent_day'?'day':'month'};
+    const fields={...post.fields,city:x.city.trim(),address:x.address.trim(),district:x.city.trim()==='Ереван'?x.district:'',kind:x.kind,rooms:x.rooms===''?null:Number(x.rooms),prices:[{...post.fields?.prices?.[0],amount:Number(x.amount),currency:x.currency,period:x.period},...(post.fields?.prices||[]).slice(1)],role:post.market==='paid'?'agent':x.role,commission:post.market==='paid'?Number(x.commission):0,commission_max:post.market==='paid'&&x.commission_max!==''?Number(x.commission_max):null,commission_type:fixed?'fixed':'percent',commission_currency:fixed?x.fee_unit:'AMD',commission_basis:x.fee_unit==='percent_day'?'day':'month'};
     await api('/api/admin/source/posts/'+encodeURIComponent(post.key),'POST',{revision:post.revision,fields});closeSheet();await Promise.all([refresh(),refreshAdmin()]);render();toast('Объявление сохранено.');
   }finally{if(button.isConnected)button.disabled=false;}
 }
@@ -1390,7 +1413,7 @@ async function publish() {
     try {localStorage.removeItem(STORE+'-draft-'+state.user.id);} catch {}
     state.filters={...baseFilters(),currency:l.prices[0].currency,period:l.prices[0].period,city:l.city,market:l.commission>0?'paid':'free'};
     persist(); navigate('feed');
-    showSheet(l.status==='review'?'Нужна проверка':'Объявление добавлено',`<div class="stack"><p>${esc(l.address)}</p><p class="price">${priceHTML(l)}</p><p class="muted">${l.status==='review'?'Нашлось похожее объявление. '+'Админ получит задачу.':'Объявление добавлено.'}</p></div>`,`<div class="stack"><button class="button secondary" data-action="verify" data-id="${esc(l.id)}">Подтвердить собственность</button><button class="button" data-action="close">Готово</button></div>`,'success');
+    showSheet(l.status==='review'?'Нужна проверка':'Объявление добавлено',`<div class="stack"><p>${esc(l.address)}</p><p class="price">${priceHTML(l)}</p><p class="muted">${l.status==='review'?'Нашлось похожее объявление. '+'Админ получит задачу.':'Объявление добавлено.'}</p></div>`,`<div class="stack"><button class="button" data-action="close">Готово</button></div>`,'success');
   } finally { state.busy=false; $('#dock').innerHTML=dock(); }
 }
 function editAddress() {
@@ -1463,8 +1486,6 @@ async function action(a,id,el) {
   if(a==='edit-commission')return commissionSheet();
   if (a==='conditions-filter') return filterConditions();
   if (a==='edit-contact') return editContact();
-  if (a==='verify') return verificationSheet(id);
-  if (a==='review-doc') return reviewDocument(id);
   if (a==='open-admin'){if(!state.user?.is_admin)return;await refreshAdmin();navigate('admin');return;}
   if (a==='official') {safeOpen('https://www.e-cadastre.am/ru/application/docview');return;}
   if (a==='telegram-contact'){const l=item(id);safeOpen('https://t.me/'+l.contact.slice(1));return;}
@@ -1538,12 +1559,14 @@ document.addEventListener('click',e=>{
   e.preventDefault(); Promise.resolve(action(b.dataset.action,b.dataset.id||'',b)).catch(e=>toast(e.message||'Не удалось выполнить действие.'));
 });
 document.addEventListener('input',e=>{
+  if(e.target.closest('#source-form'))updateSourceFeeBounds();
   if(e.target.dataset.field&&state.draft)state.draft[e.target.dataset.field]=e.target.type==='date'?(e.target.value||null):e.target.value;
   if(['available-from','available-until'].includes(e.target.id))updateAvailability();
   if(e.target.id==='listing-text') {state.text=e.target.value;if(!state.phoneTouched){state.draft.phone=C.phoneFromText(state.text);state.phoneInferred=!!state.draft.phone;const note=$('.phone-inferred');if(note)note.hidden=!state.phoneInferred;}persist();}
   captureStep();
 });
 document.addEventListener('change',e=>{
+  if(e.target.closest('#source-form'))updateSourceFeeBounds();
   if(e.target.closest('#filter-conditions')){const control=$('.filter-alerts [data-action=follow]');if(control)control.setAttribute('aria-checked',String(!!currentSubscription(conditionFilters())?.active));}
   if(e.target.id==='city-input')updateAddressCity(true);
   if(e.target.id==='agent-work'){const independent=e.target.value==='independent';$('#agency-row').hidden=independent;$('#agent-agency').required=!independent;}
@@ -1565,7 +1588,7 @@ document.addEventListener('submit',e=>{
   if(e.target.id==='source-form'){submitSource(e.target,x).catch(err=>toast(err.message));return;}
   if(['report-form','report-decision'].includes(e.target.id)){submitReport(e.target,x).catch(err=>toast(err.message));return;}
   if(['step-address-form','step-price-form'].includes(e.target.id)){prepareListing().catch(err=>toast(err.message));return;}
-  if(['verification-form','verification-decision','contact-form','filter-conditions','ban-form','commission-form','agent-profile-form'].includes(e.target.id)){handleExtraForm(e.target,x).catch(err=>toast(err.message));return;}
+  if(['contact-form','filter-conditions','ban-form','commission-form','agent-profile-form'].includes(e.target.id)){handleExtraForm(e.target,x).catch(err=>toast(err.message));return;}
   if(e.target.id==='budget-form'||e.target.id==='edit-price-form') {
     const amount=Number(String(x.amount).replace(/\s/g,''));
     if (!Number.isFinite(amount)||amount<0||amount>1e9) return toast('Укажите корректную сумму.');
@@ -1765,7 +1788,7 @@ function trustHTML(l) {
   const verified=['owner_verified','representative_verified'].includes(l.document_status);
   const titles={owner_verified:'Собственник сверён',representative_verified:'Представитель сверён',document_checked:'Документ проверен',pending:'Документ на проверке',not_confirmed:'Проверка не подтверждена'};
   const title=titles[l.document_status]||(l.role==='owner'?'Собственник — со слов автора':'Проверка собственности');
-  const detail=verified?'Администратор сверил документ через e-cadastre, объект, личность и актуальность права.':l.document_status==='document_checked'?'Сверены документ через e-cadastre и сведения об объекте.':'Администратор сверяет документ через e-cadastre, отдельно личность и право на размещение.';
+  const detail=verified?'Администратор сверил документ через e-cadastre, объект, личность и актуальность права.':l.document_status==='document_checked'?'Сверены документ через e-cadastre и сведения об объекте.':'Документ можно проверить в e-cadastre по номеру и паролю. Реквизиты запросите у автора.';
   return `<details class="trust-box"><summary>${icon(verified||l.document_status==='document_checked'?'check':'info')}<span>${title}</span>${icon('down')}</summary><p class="note">${detail}</p>${l.verification?.checked_on?`<p class="note">Дата сверки: ${esc(l.verification.checked_on)}</p>`:''}<button class="text-button" data-action="official">Официальный способ проверки ↗</button></details>`;
 }
 
@@ -1805,18 +1828,6 @@ async function contactSheet(id) {
   const contact=/^@[A-Za-z0-9_]{5,32}$/.test(l.contact||'')?l.contact:'';
   showSheet('Связаться с автором',`<div class="stack">${contact?`<button class="button" data-action="telegram-contact" data-id="${esc(id)}">Написать ${esc(contact)}</button>`:`<button class="button" data-action="discussion" data-id="${esc(id)}" ${l.telegram_discussion_url?'':'disabled'}>Открыть обсуждение</button>${l.telegram_discussion_url?'':'<p class="note">Обсуждение недоступно.</p>'}`}${contact&&/^\+[1-9]\d{7,14}$/.test(l.phone||'')?`<a class="button secondary" href="tel:${esc(l.phone)}">Позвонить ${esc(l.phone)}</a>`:''}</div>`,'','contact',id);
 }
-function verificationSheet(id) {
-  const l=item(id);if(!l?.is_mine)return toast('Проверку запрашивает автор своего объявления.');
-  if(l.document_status==='pending')return toast('Документ уже ожидает администратора.');
-  showSheet('Подтвердить собственность',`<form id="verification-form" data-listing="${esc(id)}" class="stack" autocomplete="off"><p>Администратор сверит документ через <strong>e-cadastre</strong>, отдельно личность и право на размещение.</p><div><label for="applicant-name">Ваше имя как в документе</label><input id="applicant-name" name="applicant_name" minlength="3" maxlength="140" required autocomplete="off"></div><div><label for="document-number">Номер кадастрового документа</label><input id="document-number" name="document_number" minlength="4" maxlength="80" required autocomplete="off"></div><div><label for="document-password">Пароль этого документа</label><input id="document-password" name="document_password" type="password" minlength="4" maxlength="100" required autocomplete="new-password"></div><p class="note">Пароль просмотра, указанный в кадастровом документе.</p><label class="check-row"><input name="consent" type="checkbox" required><span>Разрешаю администратору использовать реквизиты для проверки этого объявления.</span></label><p class="note">Реквизиты доступны администратору, хранятся зашифрованными и удаляются после решения или через 7 дней.</p></form>`,`<button class="button" type="submit" form="verification-form">Отправить на проверку</button>`,'verification',id);
-}
-async function reviewDocument(id) {
-  if(!state.user?.is_admin)return;
-  const x=await api('/api/admin/'+id+'/private');
-  if(!x.document_number)return toast('Реквизиты отсутствуют или удалены.');
-  const today=new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Yerevan'});
-  showSheet('Проверка администратором',`<form id="verification-decision" data-listing="${esc(id)}" class="stack"><p class="note">Откройте e-cadastre, введите реквизиты и сверьте результат.</p><div><label>Имя заявителя</label><input readonly value="${esc(x.applicant_name||'Не указано')}"></div><div><label>Номер документа</label><input readonly value="${esc(x.document_number)}"></div><div><label>Пароль просмотра</label><input readonly value="${esc(x.document_password)}" autocomplete="off"></div><button type="button" class="button secondary" data-action="official">Открыть официальный e-cadastre ↗</button>${[['document_valid','На официальном сайте документ подлинный и действительный'],['object_matches','Адрес и объект совпадают с объявлением'],['identity_matches','Личность заявителя сверена отдельно'],['rights_current','Сведения о праве актуальны на дату проверки'],['authority_checked','Для представителя: полномочия отдельно сверены']].map(([k,t])=>`<label class="check-row"><input name="${k}" type="checkbox"><span>${t}</span></label>`).join('')}<div><label for="checked-date">Дата сверки сведений</label><input id="checked-date" type="date" name="checked_on" value="${today}" required></div><div><label for="verification-result">Результат</label><select name="result" id="verification-result">${selectOptions([['document_checked','Документ и объект проверены'],['owner_verified','Собственник: документ + личность + право'],['representative_verified','Представитель: дополнительно полномочия'],['not_confirmed','Не подтверждено']],'document_checked')}</select></div><p class="note">Положительное решение удалит реквизиты. Публично останутся метод, дата и перечень выполненных проверок.</p></form>`,`<button class="button" type="submit" form="verification-decision">Сохранить результат</button>`,'review-doc',id);
-}
 async function handleExtraForm(form,x) {
   if(form.id==='agent-profile-form'){
     const button=$('button[form="agent-profile-form"]');button.disabled=true;
@@ -1837,11 +1848,6 @@ async function handleExtraForm(form,x) {
   try {
     if(form.id==='ban-form'){
       await api('/api/admin/'+lid+'/ban','POST',{reason:x.reason.trim()});form.reset();closeSheet();await refresh();await refreshAdmin();navigate('admin');toast('Объявление заблокировано. Причина видна автору.');
-    } else if(form.id==='verification-form'){
-      await api('/api/listings/'+lid+'/verification','POST',{...x,consent:x.consent==='on'});form.reset();await refresh();closeSheet();toast('Реквизиты отправлены администратору.');
-    } else if(form.id==='verification-decision'){
-      for(const k of ['document_valid','object_matches','identity_matches','rights_current','authority_checked'])x[k]=x[k]==='on';
-      await api('/api/admin/'+lid+'/verification','POST',x);form.reset();closeSheet();await refreshAdmin();await refresh();render();toast('Результат сохранён. Реквизиты удалены.');
     }
   } finally {if(button?.isConnected)button.disabled=false;}
 }
@@ -1908,39 +1914,65 @@ document.addEventListener('error',e=>{
   img.closest('.photo-tile').classList.add('photo-broken');
 },true);
 
-let leafletReady=null,rentalMap=null,mapGeneration=0,mapPoints=[],mapTiles='';
+let maplibreReady=null,maplibre=null,rentalMap=null,mapGeneration=0,mapRequest=null;
 function mapButton(l){return state.mapsEnabled&&l.city==='Ереван'?`<button class="icon-button map-button" data-action="map" data-id="${esc(l.id)}" aria-label="Адрес на карте" title="Адрес на карте">${icon('map')}</button>`:'';}
-function destroyMap(){mapGeneration++;if(rentalMap){rentalMap.remove();rentalMap=null;}mapPoints=[];}
-function loadLeaflet(){
-  if(!leafletReady)leafletReady=Promise.all(['css','js'].map(ext=>new Promise((resolve,reject)=>{
-    const el=document.createElement(ext==='css'?'link':'script');
-    if(ext==='css'){el.rel='stylesheet';el.href='/assets/leaflet-1.9.4.css';}else el.src='/assets/leaflet-1.9.4.js';
-    el.onload=resolve;el.onerror=()=>{el.remove();reject(new Error('Карта не загрузилась. Попробуйте ещё раз.'));};document.head.appendChild(el);
-  }))).catch(error=>{leafletReady=null;throw error;});
-  return leafletReady;
+function destroyMap(){mapGeneration++;mapRequest?.abort();mapRequest=null;if(rentalMap){rentalMap.remove();rentalMap=null;}}
+function loadMapLibre(){
+  if(!maplibreReady){
+    const css=new Promise((resolve,reject)=>{
+      const existing=document.querySelector('link[data-map-style]');if(existing?.sheet){resolve();return;}
+      existing?.remove();const el=document.createElement('link');el.rel='stylesheet';el.href='/assets/maplibre-6.7.0/maplibre-gl.css';el.dataset.mapStyle='';
+      el.onload=resolve;el.onerror=()=>{el.remove();reject(new Error('Карта не загрузилась.'));};document.head.appendChild(el);
+    });
+    maplibreReady=Promise.all([import('/assets/maplibre-6.7.0/maplibre-gl.mjs'),css]).then(([module])=>{
+      maplibre=module;module.setWorkerUrl('/assets/maplibre-6.7.0/maplibre-gl-worker.mjs');module.setWorkerCount(1);
+    }).catch(error=>{maplibreReady=null;throw error;});
+  }
+  return maplibreReady;
+}
+function localizeMapStyle(style){
+  const named=value=>Array.isArray(value)?(value[0]==='get'&&/^name(?::|_|$)/.test(value[1]))||value.some(named):typeof value==='string'&&/\{name(?::|_|\})/.test(value);
+  for(const layer of style.layers||[]){
+    if(layer.type==='symbol'&&named(layer.layout?.['text-field']))layer.layout['text-field']=['coalesce',['get','name:ru'],['get','name:latin'],['get','name:en'],['get','name']];
+  }
+  return style;
 }
 async function openMap(id){
   const l=item(id);if(!l||l.city!=='Ереван')return;
-  showSheet('Адрес на карте',`<p>${esc(l.address)}</p><p class="note" id="map-status" role="status">Ищем адрес…</p><div id="rental-map" role="region" aria-label="Карта адреса" hidden></div><p class="map-credit">Геокодинг: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> · Nominatim</p>`,`<button class="button secondary" data-action="detail" data-id="${esc(id)}">К объявлению</button>`,'map',id,'map-sheet');
+  showSheet('Адрес на карте',`<p>${esc(l.address)}</p><p class="note" id="map-status" role="status">Ищем адрес…</p><div id="rental-map" role="region" aria-label="Карта адреса" hidden></div><a id="map-external" class="text-button" target="_blank" rel="noopener noreferrer" hidden>Открыть OpenStreetMap</a><p class="map-credit">Геокодинг: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> · Nominatim</p>`,`<button class="button secondary" data-action="detail" data-id="${esc(id)}">К объявлению</button>`,'map',id,'map-sheet');
   const generation=mapGeneration;
   try{
-    const [result]=await Promise.all([api('/api/listings/'+encodeURIComponent(id)+'/map'),loadLeaflet()]);
+    const result=await api('/api/listings/'+encodeURIComponent(id)+'/map');
     if(generation!==mapGeneration)return;
-    mapPoints=result.points;mapTiles=result.tile_url;
-    if(!mapPoints.length){$('#map-status').textContent='Адрес не найден на карте. Уточните расположение у автора.';return;}
-    drawMapPoint(0);
-  }catch(error){if(generation===mapGeneration)$('#map-status').textContent=error.message;}
+    const point=result.points[0];
+    if(!point){$('#map-status').textContent='Адрес не найден на карте. Уточните расположение у автора.';return;}
+    const zoom=point.precision==='district'?13:point.precision==='building'?17:15;
+    const external=$('#map-external');external.href=`https://www.openstreetmap.org/?mlat=${point.lat}&mlon=${point.lon}#map=${zoom}/${point.lat}/${point.lon}`;external.hidden=false;
+    $('#map-status').textContent='Загружаем карту…';
+    const request=new AbortController();mapRequest=request;const timeout=setTimeout(()=>request.abort(),15000);
+    let style;
+    try{
+      const [response]=await Promise.all([fetch(result.style_url,{credentials:'omit',referrerPolicy:'origin',signal:request.signal}),loadMapLibre()]);
+      if(!response.ok)throw new Error('Карта не загрузилась.');style=localizeMapStyle(await response.json());
+    }finally{clearTimeout(timeout);if(mapRequest===request)mapRequest=null;}
+    if(generation!==mapGeneration)return;
+    drawMapPoint(point,zoom,style,generation);
+  }catch(error){
+    if(generation===mapGeneration){if(rentalMap){rentalMap.remove();rentalMap=null;}$('#rental-map').hidden=true;$('#map-status').textContent='Карта временно недоступна. Попробуйте ещё раз.';}
+  }
 }
-function drawMapPoint(index){
-  const point=mapPoints[index];if(!point||sheetKind!=='map')return;
-  if(rentalMap)rentalMap.remove();
+function drawMapPoint(point,zoom,style,generation){
   $('#rental-map').hidden=false;
-  $('#map-status').textContent=point.precision==='district'?'Примерно: район '+point.district+'.':point.precision==='street'?'Примерное расположение улицы.':'Примерное расположение по адресу.';
-  rentalMap=L.map('rental-map',{scrollWheelZoom:false}).setView([point.lat,point.lon],point.precision==='district'?13:point.precision==='building'?17:15);
-  L.tileLayer(mapTiles,{maxZoom:19,updateWhenIdle:true,keepBuffer:1,referrerPolicy:'origin',attribution:'© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a>'}).addTo(rentalMap);
-  const marker=L.circleMarker([point.lat,point.lon],{radius:8,color:'#137d63',fillOpacity:point.precision==='building'?.9:0,dashArray:point.precision==='building'?null:'3 3'});
-  const label=document.createElement('span');label.textContent=point.label;marker.addTo(rentalMap).bindTooltip(label,{direction:'top'});
-  const map=rentalMap;requestAnimationFrame(()=>{if(rentalMap===map)map.invalidateSize();});
+  const map=new maplibre.Map({container:'rental-map',style,center:[point.lon,point.lat],zoom,maxZoom:19,maxPitch:0,scrollZoom:false,dragRotate:false,touchPitch:false,renderWorldCopies:false,maxTileCacheSize:32,pixelRatio:Math.min(devicePixelRatio||1,2),canvasContextAttributes:{powerPreference:'low-power'},attributionControl:false,locale:{'NavigationControl.ZoomIn':'Приблизить','NavigationControl.ZoomOut':'Отдалить','Map.Title':'Карта адреса','Marker.Title':'Примерное расположение'},transformRequest:url=>({url,credentials:'omit'})});
+  rentalMap=map;map.touchZoomRotate.disableRotation();
+  map.addControl(new maplibre.NavigationControl({showCompass:false}),'top-left');
+  map.addControl(new maplibre.AttributionControl({compact:false}),'bottom-right');
+  const marker=document.createElement('button');marker.className='map-location'+(point.precision==='building'?'':' approximate');marker.type='button';marker.setAttribute('aria-label',point.label);marker.title=point.label;
+  new maplibre.Marker({element:marker}).setLngLat([point.lon,point.lat]).setPopup(new maplibre.Popup({closeButton:false,offset:14}).setText(point.label)).addTo(map);
+  const precision=point.precision==='district'?'Примерно: район '+point.district+'.':point.precision==='street'?'Примерное расположение улицы.':'Примерное расположение по адресу.';
+  map.once('load',()=>{if(generation===mapGeneration)$('#map-status').textContent=precision;});
+  map.on('error',()=>{if(generation===mapGeneration)$('#map-status').textContent='Карта временно недоступна. Можно открыть OpenStreetMap.';});
+  requestAnimationFrame(()=>{if(rentalMap===map)map.resize();});
 }
 </script>
 </body>

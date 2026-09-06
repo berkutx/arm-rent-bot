@@ -60,6 +60,16 @@ with tempfile.TemporaryDirectory(prefix='rent-mobile-',ignore_cleanup_errors=Tru
   page.evaluate('render()')
   assert page.evaluate('state.draft.phone')=='' and page.evaluate('state.draft.role')=='agent'
   actor(42);open_first()
+  page.locator('.trust-box summary').click()
+  expect(page.locator('.trust-box')).to_contain_text('Документ можно проверить в e-cadastre по номеру и паролю. Реквизиты запросите у автора.')
+  assert not page.locator('[data-action=verify],[data-action=review-doc],#verification-form,#verification-decision').count()
+  page.evaluate('tg.openLink=url=>window.officialOpened=url')
+  page.locator('.trust-box [data-action=official]').click()
+  assert page.evaluate('window.officialOpened')=='https://www.e-cadastre.am/ru/application/docview'
+  page.evaluate('(id)=>{const l=item(id);document.querySelector(".trust-box").outerHTML=trustHTML({...l,document_status:"owner_verified",verification:{method:"e-cadastre-manual",checked_on:"2026-09-05"}})}',first['id'])
+  page.locator('.trust-box summary').click()
+  expect(page.locator('.trust-box')).to_contain_text('Администратор сверил документ через e-cadastre')
+  expect(page.locator('.trust-box')).to_contain_text('2026-09-05')
   page.wait_for_function('document.querySelector(".sheet .view-count")?.textContent.trim()==="1"')
   assert page.locator('.community-posts').count()==0
   page.locator('[data-action=phone-listings]').click();page.locator('.phone-listings').wait_for()
@@ -75,12 +85,16 @@ with tempfile.TemporaryDirectory(prefix='rent-mobile-',ignore_cleanup_errors=Tru
   assert client.get('/api/listings/'+first['id']).json()['view_count']==2
   actor(42)
   page.locator('#header [data-action=mine]').click();row=page.locator('[data-mine-id="'+first['id']+'"]')
+  assert not row.locator('[data-action=verify]').count()
   assert 'Актуально' in row.inner_text();row.locator('[data-action=status]').click()
   page.wait_for_function('document.querySelector(".my-row .listing-status")?.textContent.includes("Сдано")')
   page.locator('.my-row [data-action=status]').click()
   page.wait_for_function('document.querySelector(".my-row .listing-status")?.textContent.includes("Актуально")')
   # Admin bans any existing ad; an empty reason cannot submit.
   actor(99);page.locator('#header [data-action=mine]').click();page.locator('.sheet [data-action=open-admin]').click();page.locator('[data-action=admin-tab][data-id=all]').click()
+  page.locator('[data-admin-id="'+first['id']+'"]').wait_for()
+  page.evaluate('(id)=>{state.queue.find(l=>l.id===id).document_status="pending";render()}',first['id'])
+  assert not page.locator('[data-action=review-doc],#verification-decision').count()
   page.locator('[data-admin-id="'+first['id']+'"] [data-action=ban]').click()
   assert not page.locator('#ban-reason').evaluate('(x)=>x.checkValidity()')
   reason='Скрытая комиссия. Исправьте условия объявления.'
@@ -161,6 +175,7 @@ with tempfile.TemporaryDirectory(prefix='rent-mobile-',ignore_cleanup_errors=Tru
   assert client.get('/api/listings/'+first['id']).status_code==404
   actor(42);page.locator('#header [data-action=mine]').click()
   assert 'Скрытая комиссия подтверждена перепиской.' in page.locator('[data-mine-id="'+first['id']+'"]').inner_text()
+  assert not any(path.endswith('/verification') or path.endswith('/private') for method,path in requests)
   assert not errors,errors
   report={'result':'passed','mobile_widths':[320,360,390,430],'js_errors':errors,'scenarios':['phone mask only, manual clear persists','explicit realtor role','same phone without realtor','unique views across authenticated users and anonymous display','My listings active and rented','admin required ban reason','owner sees ban and cannot restore','admin unban retains date and views','complaint reason and evidence handoff','private screenshots and direct report launch','admin complaint resolution and owner ban reason'],'telegram_calls':0,'scope':'Chromium UI with intercepted requests to real FastAPI TestClient and temporary SQLite; no live data or Telegram network'}
   (O/'mobile-moderation.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8');print(json.dumps(report,ensure_ascii=False))
