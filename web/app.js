@@ -498,7 +498,7 @@ async function action(a,id,el) {
   if (a==='verify') return verificationSheet(id);
   if (a==='review-doc') return reviewDocument(id);
   if (a==='open-admin'){if(!state.user?.is_admin)return;await refreshAdmin();navigate('admin');return;}
-  if (a==='official') {safeOpen('https://www.e-cadastre.am/en/application/docview');return;}
+  if (a==='official') {safeOpen('https://www.e-cadastre.am/ru/application/docview');return;}
   if (a==='telegram-contact'){const l=item(id);safeOpen('https://t.me/'+l.contact.slice(1));return;}
   if (a==='nav') { navigate(id); return; }
   if (a==='back') { back(); return; }
