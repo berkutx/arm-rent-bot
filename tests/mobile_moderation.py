@@ -43,7 +43,7 @@ with tempfile.TemporaryDirectory(prefix='rent-mobile-',ignore_cleanup_errors=Tru
    page.locator('[data-listing="'+first['id']+'"] .listing-main').click()
    page.locator('.sheet .view-count').wait_for()
   # Phone-only parsing; precise fields still require manual input.
-  page.locator('[data-action=nav][data-id=add]').click()
+  page.locator('#header [data-action=nav][data-id=add]').click()
   text='С 15 числа до мая, цена 600.000. Телефон +374 (91) 123456.'
   page.evaluate('goStep(3)')
   page.locator('#listing-text').fill(text)
@@ -74,13 +74,13 @@ with tempfile.TemporaryDirectory(prefix='rent-mobile-',ignore_cleanup_errors=Tru
   assert page.locator('.sheet .view-count').inner_text().strip()=='2'
   assert client.get('/api/listings/'+first['id']).json()['view_count']==2
   actor(42)
-  page.locator('[data-action=mine]').click();row=page.locator('[data-mine-id="'+first['id']+'"]')
+  page.locator('#header [data-action=mine]').click();row=page.locator('[data-mine-id="'+first['id']+'"]')
   assert 'Актуально' in row.inner_text();row.locator('[data-action=status]').click()
   page.wait_for_function('document.querySelector(".my-row .listing-status")?.textContent.includes("Сдано")')
   page.locator('.my-row [data-action=status]').click()
   page.wait_for_function('document.querySelector(".my-row .listing-status")?.textContent.includes("Актуально")')
   # Admin bans any existing ad; an empty reason cannot submit.
-  actor(99);page.locator('[data-action=open-admin]').click();page.locator('[data-action=admin-tab][data-id=all]').click()
+  actor(99);page.locator('#header [data-action=mine]').click();page.locator('.sheet [data-action=open-admin]').click();page.locator('[data-action=admin-tab][data-id=all]').click()
   page.locator('[data-admin-id="'+first['id']+'"] [data-action=ban]').click()
   assert not page.locator('#ban-reason').evaluate('(x)=>x.checkValidity()')
   reason='Скрытая комиссия. Исправьте условия объявления.'
@@ -88,7 +88,7 @@ with tempfile.TemporaryDirectory(prefix='rent-mobile-',ignore_cleanup_errors=Tru
   page.locator('button[form=ban-form]').click()
   page.locator('[data-admin-id="'+first['id']+'"] .status-banned').wait_for()
   assert client.get('/api/listings/'+first['id']).status_code==404
-  actor(42);page.locator('[data-action=mine]').click()
+  actor(42);page.locator('#header [data-action=mine]').click()
   row=page.locator('[data-mine-id="'+first['id']+'"]')
   assert reason in row.inner_text() and 'Заблокировано' in row.inner_text()
   assert row.locator('[data-action=status]').count()==0
@@ -99,7 +99,7 @@ with tempfile.TemporaryDirectory(prefix='rent-mobile-',ignore_cleanup_errors=Tru
    page.screenshot(animations='disabled',path=str(O/f'my-ban-{width}.png'))
   page.set_viewport_size({'width':390,'height':844})
   page.evaluate('tg.colorScheme="dark";applyTheme()');page.screenshot(animations='disabled',path=str(O/'my-ban-dark-390.png'))
-  actor(99);page.locator('[data-action=open-admin]').click();page.locator('[data-action=admin-tab][data-id=banned]').click()
+  actor(99);page.locator('#header [data-action=mine]').click();page.locator('.sheet [data-action=open-admin]').click();page.locator('[data-action=admin-tab][data-id=banned]').click()
   expect(page.locator('[data-admin-id]')).to_have_count(1)
   page.locator('[data-action=unban]').click();page.wait_for_function('!document.querySelector("[data-admin-id]")')
   restored=client.get('/api/listings/'+first['id']).json()
@@ -150,7 +150,7 @@ with tempfile.TemporaryDirectory(prefix='rent-mobile-',ignore_cleanup_errors=Tru
   assert page.locator('.report-content a[href="https://t.me/example_thread/123"]').count()==1
   page.locator('[data-action=report-listing]').click();page.locator('.detail-sheet').wait_for()
   page.locator('[data-action=close]').click()
-  page.locator('[data-action=open-admin]').click();page.locator('[data-action=admin-tab][data-id=reports]').click()
+  page.locator('#header [data-action=mine]').click();page.locator('.sheet [data-action=open-admin]').click();page.locator('[data-action=admin-tab][data-id=reports]').click()
   page.locator('[data-action=open-report]').click();page.locator('#report-decision').wait_for()
   assert not page.locator('#report-outcome').evaluate('(x)=>x.checkValidity()')
   page.locator('#report-outcome').select_option('ban')
@@ -159,7 +159,7 @@ with tempfile.TemporaryDirectory(prefix='rent-mobile-',ignore_cleanup_errors=Tru
   page.locator('button[form=report-decision]').click()
   page.wait_for_function('document.querySelector(".report-row")?.textContent.includes("Объявление заблокировано")')
   assert client.get('/api/listings/'+first['id']).status_code==404
-  actor(42);page.locator('[data-action=mine]').click()
+  actor(42);page.locator('#header [data-action=mine]').click()
   assert 'Скрытая комиссия подтверждена перепиской.' in page.locator('[data-mine-id="'+first['id']+'"]').inner_text()
   assert not errors,errors
   report={'result':'passed','mobile_widths':[320,360,390,430],'js_errors':errors,'scenarios':['phone mask only, manual clear persists','explicit realtor role','same phone without realtor','unique views across authenticated users and anonymous display','My listings active and rented','admin required ban reason','owner sees ban and cannot restore','admin unban retains date and views','complaint reason and evidence handoff','private screenshots and direct report launch','admin complaint resolution and owner ban reason'],'telegram_calls':0,'scope':'Chromium UI with intercepted requests to real FastAPI TestClient and temporary SQLite; no live data or Telegram network'}

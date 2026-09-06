@@ -1,4 +1,3 @@
-/* Mobile is the base layout. There is no desktop sidebar or alternative desktop UI. */
 :root {
   --bg:#f7f8fa; --surface:#fff; --ink:#1c2927; --muted:#667571;
   --border:#e5eae7; --accent:#137d63; --on-accent:#fff; --tint:#eaf4ef;
@@ -35,26 +34,22 @@ svg { width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:1.8;
 .grow { flex:1; min-width:0; }
 .stack { display:grid; gap:16px; }
 .app { width:100%; max-width:480px; min-height:100dvh; margin:0 auto; background:var(--bg); }
-.app-header { position:sticky; top:0; z-index:10; min-height:60px; padding:calc(5px + var(--safe-top)) 12px 5px; display:flex; align-items:center; justify-content:space-between; gap:12px; background:var(--bg); }
-.brand { display:flex; align-items:center; gap:10px; }
-.brand-icon { width:36px; height:36px; border-radius:12px; background:var(--accent); color:var(--on-accent); display:grid; place-items:center; }
-.brand-name { font-size:24px; font-weight:800; line-height:1; letter-spacing:-.8px; }
-.brand-caption { font-size:12px; color:var(--muted); margin-top:5px; }
+.app-header { position:sticky; top:0; z-index:10; min-height:56px; padding:calc(4px + var(--safe-top)) 12px 4px; display:flex; align-items:center; justify-content:space-between; gap:12px; background:var(--bg); }
+
 .icon-button { display:inline-flex; align-items:center; justify-content:center; width:44px; height:44px; border-radius:50%; flex:none; }
 .header-title { font-size:17px; font-weight:650; flex:1; text-align:center; }
 .header-side { width:44px; flex:none; }
-#main { padding:0 12px calc(90px + var(--safe-bottom)); }
-.filters { display:grid; grid-template-columns:1fr 1fr 1fr 44px; gap:6px; padding-top:4px; }
-.filter-chip { border:1px solid var(--border); border-radius:13px; background:var(--surface); min-width:0; padding:10px; display:flex; align-items:center; justify-content:center; gap:5px; font-size:14px; font-weight:560; min-height:48px; }
+#main { padding:0 12px calc(12px + var(--safe-bottom)); }
+.has-dock #main { padding-bottom:calc(90px + var(--safe-bottom)); }
+.filters { display:grid; grid-template-columns:1fr 1fr 44px; gap:6px; padding-top:4px; }
+.filter-chip { border:1px solid var(--border); border-radius:13px; background:var(--surface); min-width:0; padding:10px; display:flex; align-items:center; justify-content:center; gap:5px; font-size:14px; font-weight:560; min-height:44px; }
 .filter-chip svg { width:13px; height:13px; }
 .filter-chip span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .filter-chip.selected { border-color:var(--accent); color:var(--accent); background:var(--tint); }
 .results-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:10px 0 5px; min-height:46px; }
 .sort-button { font-size:13px; color:var(--muted); display:flex; align-items:center; gap:4px; padding:0; }
 .sort-button svg { height:14px; width:14px; }
-.follow-button { display:flex; align-items:center; gap:6px; font-size:13px; font-weight:600; color:var(--accent); padding:0 8px; border-radius:10px; }
-.follow-button svg { width:18px; height:18px; }
-.follow-button.on { background:var(--tint); }
+
 .list { display:grid; gap:10px; }
 .listing { border:1px solid var(--border); border-radius:19px; background:var(--surface); overflow:hidden; }
 .listing-body { padding:15px 15px 13px; position:relative; }
@@ -74,11 +69,7 @@ svg { width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:1.8;
 .source-note { font-size:12px; color:var(--muted); margin:17px 3px; line-height:1.55; }
 .text-button { color:var(--accent); font-size:14px; font-weight:600; padding:0 4px; }
 .dock { position:fixed; z-index:15; width:100%; max-width:480px; left:50%; bottom:var(--keyboard); transform:translateX(-50%); border-top:1px solid var(--border); background:var(--surface); padding-bottom:var(--safe-bottom); }
-.nav { display:grid; grid-template-columns:1fr 1fr; padding:7px 9px 8px; gap:5px; }
-.nav button { display:flex; align-items:center; justify-content:center; flex-direction:column; gap:3px; min-height:56px; border-radius:13px; font-size:11px; color:var(--muted); }
-.nav .active { color:var(--accent); }
-.nav .add-nav { flex-direction:row; align-self:center; justify-self:end; margin-right:7px; width:100px; gap:5px; min-height:46px; color:var(--on-accent); background:var(--accent); font-size:14px; font-weight:600; }
-.nav .add-nav svg { width:18px; height:18px; }
+
 .button { display:flex; align-items:center; justify-content:center; gap:8px; min-height:52px; padding:13px 17px; background:var(--accent); color:var(--on-accent); font-size:16px; font-weight:650; border-radius:14px; width:100%; }
 .button.secondary { color:var(--ink); background:var(--surface); border:1px solid var(--border); }
 .button.quiet { background:var(--tint); color:var(--accent); }
@@ -158,12 +149,10 @@ details .details-text { padding:0 15px 17px; }
 .my-row p { font-size:14px; margin-top:3px; color:var(--muted); }
 .my-row .button { margin-top:10px; min-height:46px; font-size:14px; }
 .status { font-size:12px; color:var(--accent); }
-:root[data-keyboard="true"] .nav { display:none; }
 @keyframes rise { from { transform:translateY(35px); opacity:.7; } to { transform:translateY(0); opacity:1; } }
 @media(min-width:600px) { body { background:var(--border); } .app { box-shadow:0 0 0 1px var(--border); } }
 @media(prefers-reduced-motion:reduce) { *,*::before,*::after { animation:none!important; transition:none!important; scroll-behavior:auto!important; } }
 
-/* v4: a neutral publication-age label, not an availability badge. */
 .publication-age { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--muted); margin:0 0 10px; line-height:1.4; }
 .feed-note { font-size:12px; color:var(--muted); line-height:1.4; margin:0 2px 12px; }
 .contact-button { display:flex; justify-content:center; align-items:center; flex-shrink:0; gap:6px; border-radius:12px; padding:10px 13px; min-height:46px; color:var(--on-accent); background:var(--accent); font-size:14px; font-weight:650; }
@@ -174,10 +163,8 @@ details .details-text { padding:0 15px 17px; }
 .availability-note { color:var(--muted); font-size:12px; margin-top:6px; }
 .my-row .publication-age { margin-top:9px; }
 .my-row .actions { margin-top:14px; }
-.nav { padding-left:18px; padding-right:18px; }
-.nav>button:first-child { flex-direction:row; gap:8px; justify-self:start; font-size:14px; min-width:96px; }
-.nav .add-nav { margin-right:0; width:120px; }
-@media(max-width:350px) { .contact-button { padding:10px; font-size:13px; } .listing-photo-link { font-size:11px; gap:4px; } .results-heading .follow-button { padding:0 4px; font-size:12px; } }
+
+@media(max-width:350px) { .contact-button { padding:10px; font-size:13px; } .listing-photo-link { font-size:11px; gap:4px; } }
 @media(max-width:350px) { .filter-chip { padding:10px 6px; font-size:13px; gap:4px; } }
 .card-top {display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;min-width:0}
 .card-top .publication-age {margin:0}
@@ -195,7 +182,7 @@ details .details-text { padding:0 15px 17px; }
 .short-text{min-height:90px}.check-row{display:flex!important;gap:12px;align-items:flex-start;font-size:14px;line-height:1.5;min-height:44px;cursor:pointer}
 .check-row input{width:20px;height:20px;min-width:20px;flex:none;padding:0;margin:1px 0;accent-color:var(--accent)}
 .choice-row>span{display:flex;align-items:center;gap:10px}.button{display:flex;align-items:center;justify-content:center;gap:8px}.sheet label{overflow-wrap:anywhere}
-@media(max-width:350px){.listing-main .price{font-size:20px}.claim-badge{font-size:9px}.brand-caption{font-size:11px}}
+@media(max-width:350px){.listing-main .price{font-size:20px}.claim-badge{font-size:9px}}
 
 [hidden] { display:none!important; }
 .travel-fields summary {font-size:14px;gap:8px}.travel-fields small {color:var(--muted);font-size:11px}
@@ -207,7 +194,6 @@ details .details-text { padding:0 15px 17px; }
 .availability-fields label {font-size:12px}.availability-fields .field-row {margin-bottom:8px}
 .availability-fields input {min-width:0;max-width:100%;font-size:14px}
 
-/* Channel and discussion placeholders stay readable, but cannot be activated. */
 .publication-links { margin:18px 0; border:1px solid var(--border); border-radius:16px; overflow:hidden; }
 .publication-links h3 { padding:14px 14px 5px; font-size:15px; }
 .publication-link { display:flex; align-items:center; gap:12px; width:100%; padding:13px 14px; text-align:left; color:var(--accent); }
@@ -229,10 +215,6 @@ details .details-text { padding:0 15px 17px; }
 .author-empty { padding:28px 0; }
 .author-empty .note { margin-top:10px; }
 
-.nav { grid-template-columns:1fr 1fr 1.2fr; gap:4px; padding-left:14px; padding-right:14px; }
-.nav>button:first-child { min-width:0; justify-self:stretch; }
-.nav .mine-nav { flex-direction:row; gap:7px; font-size:14px; }
-.nav .add-nav { width:100%; max-width:120px; }
 .card-metrics { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
 .card-top { flex-wrap:wrap; }
 .view-count { display:inline-flex; align-items:center; gap:5px; font-size:12px; color:var(--muted); white-space:nowrap; }
@@ -251,10 +233,7 @@ details .details-text { padding:0 15px 17px; }
 .danger { color:var(--warn); }
 #ban-reason { min-height:130px; }
 
-.brand-name {font-size:18px;line-height:1.12;letter-spacing:-.4px;max-width:205px}
-.brand-icon {width:35px;height:35px;border-radius:11px}
-.brand {gap:9px;min-width:0}.brand-caption {font-size:11px;margin-top:4px}
-.market-switch {display:flex;gap:4px;background:var(--surface);border:1px solid var(--border);border-radius:13px;padding:4px;margin:0 0 14px}
+.market-switch {display:flex;gap:4px;background:var(--surface);border:1px solid var(--border);border-radius:13px;padding:4px;margin:0 0 4px}
 .market-switch button {flex:1;padding:8px 6px;border-radius:10px;font-size:13px;font-weight:650;min-width:0}
 .market-switch button[aria-pressed=true] {background:var(--accent);color:var(--on-accent)}
 .market-count {font-size:11px;opacity:.8;white-space:nowrap}
@@ -280,8 +259,8 @@ details .details-text { padding:0 15px 17px; }
 .compact-grid .listing {border-radius:13px;min-width:0}.compact-grid .listing-body {padding:9px}
 .compact-grid .listing-main .price {font-size:17px;line-height:1.3;letter-spacing:-.6px}
 .compact-grid .price small {display:block;font-size:11px;letter-spacing:0}
-.compact-grid .listing-title {font-size:12px}.compact-grid .listing-address {font-size:11px;line-height:1.35;min-height:30px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.compact-grid .commission-note {font-size:11px;min-height:30px}.compact-grid .photo-tile:first-child {aspect-ratio:1}
+.compact-grid .listing-title {font-size:12px}.compact-grid .listing-address {font-size:11px;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.compact-grid .commission-note {font-size:11px}.compact-grid .photo-tile:first-child {aspect-ratio:1}
 .compact-grid .album-empty {aspect-ratio:1;flex-direction:column;font-size:11px;padding:9px;min-height:0}
 .compact-grid .album-count {right:4px;bottom:4px;padding:3px 5px;font-size:10px}.compact-grid .album-count svg {display:none}
 .compact-grid .card-extra,.compact-grid .claim-badge,.compact-grid .trust-badge,.compact-grid .listing-bottom {display:none}
@@ -298,7 +277,7 @@ details .details-text { padding:0 15px 17px; }
 .gallery-summary strong {font-size:20px}.gallery-summary small {font-size:12px;font-weight:400}.gallery-summary>span {font-size:12px;overflow-wrap:anywhere}.gallery-summary .gallery-fee {color:#e6cb9b;font-size:11px}
 .gallery-actions {display:flex;gap:9px}.gallery-actions button {flex:1;min-width:0;min-height:45px;padding:10px;font-size:14px}
 .gallery-actions .secondary {background:#2b3d33;color:#fff;border-color:#45584c}
-@media (max-width:359px) {.brand-name {font-size:16px;max-width:155px}.brand-icon {display:none}.compact-grid .listing-main .price {font-size:15px}.compact-grid .card-metrics svg {width:13px;height:13px}}
+@media (max-width:359px) {.compact-grid .listing-main .price {font-size:15px}.compact-grid .card-metrics svg {width:13px;height:13px}}
 
 .catalog-tools { display:flex; gap:3px; align-items:center; }
 .catalog-tools button { width:44px; min-height:44px; padding:0; justify-content:center; }
@@ -356,8 +335,8 @@ details .details-text { padding:0 15px 17px; }
 
 #source-form .field-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
 
-.listing-heading,.map-address {display:flex;align-items:flex-start;gap:4px}
-.listing-heading .listing-main,.map-address .meta {flex:1;min-width:0}
+.map-address {display:flex;align-items:flex-start;gap:4px}
+.map-address .meta {flex:1;min-width:0}
 .map-button {color:var(--accent);flex:none}
 .map-sheet .sheet-body {display:grid;gap:12px}
 #rental-map {height:clamp(240px,48dvh,420px);width:100%;border-radius:12px;color:#1c2927;isolation:isolate}
@@ -365,6 +344,15 @@ details .details-text { padding:0 15px 17px; }
 #rental-map .leaflet-control-attribution {font-size:11px;background:#fffe}
 #rental-map .leaflet-control-attribution a {color:#175583}
 .map-credit {font-size:11px;color:var(--muted)}
-.compact-grid .map-button {width:32px}
 
 #rental-map .leaflet-overlay-pane > svg {width:auto;height:auto}
+
+.location-filter {display:flex;align-items:center;gap:8px;text-align:left;min-width:0;padding:0;flex:1}
+.location-filter>span {min-width:0}.location-filter strong {display:block;font-size:17px;line-height:1.3;overflow-wrap:anywhere}
+.location-filter small {display:block;font-size:12px;color:var(--muted);overflow-wrap:anywhere}.location-filter.selected small {color:var(--accent)}
+.location-filter>svg {width:15px;height:15px}.header-actions {display:flex;gap:12px;align-items:center;flex:none}
+.header-actions .text-button {min-width:44px}.add-button {background:var(--accent);color:var(--on-accent);border-radius:13px}
+.filter-alerts {border-top:1px solid var(--border);margin-top:18px;padding-top:12px;font-size:14px}.filter-alerts .note {margin:0 0 4px}.filter-alerts .choice-row {font-size:14px}
+.card-photos {position:relative;margin:10px 0}.card-photos .photo-album {margin:0}
+.card-photos>.map-button {position:absolute;right:6px;top:6px;background:var(--surface);border-radius:12px;box-shadow:0 1px 5px #0003}
+.compact-grid .card-photos {margin:0 0 9px}.compact-grid .card-top {margin-top:7px}

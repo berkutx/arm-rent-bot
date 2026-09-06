@@ -82,7 +82,7 @@ function filtered() {
   return records.sort((a,b) => state.sort === 'price' ? C.offer(a,state.filters).currency.localeCompare(C.offer(b,state.filters).currency)||C.offer(a,state.filters).period.localeCompare(C.offer(b,state.filters).period)||C.offer(a,state.filters).amount-C.offer(b,state.filters).amount||C.newestFirst(a,b) : C.newestFirst(a,b));
 }
 function filterKey(f) { return JSON.stringify(Object.keys(baseFilters()).map(k => [k, f[k] ?? baseFilters()[k]])); }
-function currentSubscription() { return state.subs.find(s => filterKey(s.filters) === filterKey(state.filters)); }
+function currentSubscription(filters=state.filters) { return state.subs.find(s => filterKey(s.filters) === filterKey(filters)); }
 function housingFilterLabel(f) { return f.kind === 'room' ? 'Комната' : f.kind === 'house' ? 'Дом' : f.rooms === '0' ? 'Студия' : f.rooms ? `${f.rooms} комн.` : 'Комнаты'; }
 function filterSummary(f) {
   return [f.market==='paid'?'С комиссией':'Без комиссии',f.district || f.city || 'Все города', housingFilterLabel(f)==='Комнаты' ? '' : housingFilterLabel(f),
@@ -93,17 +93,20 @@ function header() {
     const title={admin:'Модерация',alerts:'Уведомления',add:'Новое объявление',review:'Новое объявление'}[state.screen];
     return `<button class="icon-button" data-action="back" aria-label="Назад">${icon('back')}</button><div class="header-title">${title}</div>${state.screen==='add'&&state.own.length?`<button class="text-button" data-action="mine">Мои · ${state.own.length}</button>`:'<span class="header-side"></span>'}`;
   }
-  return `<div class="brand"><div class="brand-icon">${icon('home')}</div><div><div class="brand-name">Аренда в Армении</div><div class="brand-caption">${esc(state.filters.city||'Армения')} · ${state.filters.market==='paid'?'агенты':'без комиссии'}</div></div></div><div class="row">${state.user?.is_admin?'<button class="text-button" data-action="open-admin">Админ</button>':''}<button class="icon-button" data-action="nav" data-id="alerts" aria-label="Мои уведомления">${icon('bell')}</button></div>`;
+  const f=state.filters;
+  return `<button class="location-filter ${f.district||f.city&&f.city!=='Ереван'?'selected':''}" data-action="district" aria-label="Город и район: ${esc(f.city||'Все города')}${f.district?', '+esc(f.district):''}"><span><strong>${esc(f.city||'Все города')}</strong><small>${esc(f.district||(f.city==='Ереван'?'Все районы':'Город и район'))}</small></span>${icon('down')}</button><div class="header-actions"><button class="text-button" data-action="mine">Мои</button><button class="icon-button add-button" data-action="nav" data-id="add" aria-label="Подать объявление" title="Подать объявление">${icon('plus')}</button></div>`;
 }
 function dock() {
   if (state.screen === 'add') return `<div class="dock-action"><button class="button" id="continue" data-action="prepare-listing" ${state.busy||(state.formStep===0&&(!state.draft?.kind||(state.draft.kind==='apartment'&&state.draft.rooms===null)))?'disabled':''}>${state.busy?'Загружаем фото…':'Продолжить'}</button></div>`;
   if (state.screen === 'review') return `<div class="dock-action"><button class="button" data-action="publish" id="publish" ${state.busy?'disabled':''}>${state.busy?'Публикуем…':'Опубликовать'}</button></div>`;
-  return `<nav class="nav" aria-label="Основные разделы"><button data-action="nav" data-id="feed" class="${state.screen==='feed'?'active':''}" ${state.screen==='feed'?'aria-current="page"':''}>${icon('search')}<span>Лента</span></button><button data-action="mine" class="mine-nav">${icon('author')}<span>Мои</span></button><button class="add-nav" data-action="nav" data-id="add">${icon('plus')}Сдать</button></nav>`;
+  return '';
 }
 function render() {
   $('#header').innerHTML = header();
   $('#main').innerHTML = state.screen==='feed' ? feed() : state.screen==='alerts' ? alerts() : state.screen==='review' ? review() : state.screen==='admin' ? admin() : compose();
   $('#dock').innerHTML = dock();
+  $('#dock').hidden = !$('#dock').innerHTML;
+  $('#app').classList.toggle('has-dock', !$('#dock').hidden);
   updateBackButton();
   if($('#city-input'))updateAddressCity();
   if (state.error) $('#main').insertAdjacentHTML('afterbegin',`<div class="error-note">${esc(state.error)}</div>`);
@@ -116,9 +119,9 @@ function navigate(screen, push=true) {
   persist(); render(); window.scrollTo(0,0);
 }
 function feed() {
-  const ls=filtered(),f=state.filters,marketCount=all().filter(l=>C.matches(l,{market:f.market})).length,sub=currentSubscription(),budget=f.max?`До ${money(f.max)} ${sym(f.currency)}`:'Бюджет';
-  return `${marketSwitch()}<div class="filters" aria-label="Фильтры поиска"><button class="filter-chip ${f.max||f.currency==='USD'||f.period==='day'?'selected':''}" data-action="budget"><span>${esc(budget)}</span>${icon('down')}</button><button class="filter-chip ${f.district||f.city&&f.city!=='Ереван'?'selected':''}" data-action="district" title="${esc(f.district||f.city||'Все города')}"><span>${esc(f.district||(f.city==='Ереван'?'Район':f.city||'Город'))}</span>${icon('down')}</button><button class="filter-chip ${f.rooms!==''||f.kind?'selected':''}" data-action="rooms"><span>${esc(housingFilterLabel(f))}</span>${icon('down')}</button><button class="filter-chip conditions-chip ${f.pets||f.contract||f.residence_registration||f.owner||f.verified?'selected':''}" data-action="conditions-filter" aria-label="Условия" title="Условия">${icon('sliders')}</button></div>
-  <div class="results-heading"><button class="sort-button" data-action="sort">${ls.length} ${plural(ls.length,'вариант','варианта','вариантов')} · ${state.sort==='price'?'дешевле':'новые'} ${icon('down')}</button><div class="catalog-tools"><button class="follow-button ${sub?.active?'on':''}" data-action="follow" aria-label="${sub?.active?'Уведомления включены':'Уведомлять о новых вариантах'}" title="Уведомлять" aria-pressed="${!!sub?.active}">${icon(sub?.active?'check':'bell')}</button>${layoutSwitch()}</div></div>
+  const ls=filtered(),f=state.filters,marketCount=all().filter(l=>C.matches(l,{market:f.market})).length,budget=f.max?`До ${money(f.max)} ${sym(f.currency)}`:'Бюджет';
+  return `${marketSwitch()}<div class="filters" aria-label="Фильтры поиска"><button class="filter-chip ${f.max||f.currency==='USD'||f.period==='day'?'selected':''}" data-action="budget"><span>${esc(budget)}</span>${icon('down')}</button><button class="filter-chip ${f.rooms!==''||f.kind?'selected':''}" data-action="rooms"><span>${esc(housingFilterLabel(f))}</span>${icon('down')}</button><button class="filter-chip conditions-chip ${f.pets||f.contract||f.residence_registration||f.owner||f.verified?'selected':''}" data-action="conditions-filter" aria-label="Фильтры и уведомления" title="Фильтры">${icon('sliders')}</button></div>
+  <div class="results-heading"><button class="sort-button" data-action="sort">${ls.length} ${plural(ls.length,'вариант','варианта','вариантов')} · ${state.sort==='price'?'дешевле':'новые'} ${icon('down')}</button><div class="catalog-tools">${layoutSwitch()}</div></div>
   <div class="list ${state.layout==='grid'?'compact-grid':'album-feed'}">${ls.map(card).join('')||(marketCount?empty('Нет подходящих вариантов','Фильтры: '+filterSummary(f)+'.',`Показать все ${marketCount}`,'reset-filters'):empty('Пока нет объявлений',f.market==='paid'?'Добавьте предложение с комиссией или подпишитесь на поиск.':'Добавьте жильё или подпишитесь на поиск.','Сдать жильё','nav','add'))}</div>`;
 }
 function plural(n,a,b,c) { return n%10===1&&n%100!==11?a:n%10>=2&&n%10<=4&&(n%100<12||n%100>14)?b:c; }
@@ -138,7 +141,7 @@ async function recordView(l) {
 }
 function marketSwitch(post=false) {
   const market=post?state.postMarket:state.filters.market;
-  return `<div class="market-switch" aria-label="${post?'Условия размещения':'Раздел каталога'}">${[['free','Без комиссии'],['paid','С комиссией · агенты']].map(([key,label])=>`<button data-action="${post?'post-market':'market'}" data-id="${key}" aria-pressed="${market===key}">${label}${post?'':` <span class="market-count">${all().filter(l=>C.matches(l,{market:key})).length}</span>`}</button>`).join('')}</div>`;
+  return `<div class="market-switch" aria-label="${post?'Условия размещения':'Раздел каталога'}">${[['free','Без комиссии'],['paid',post?'С комиссией · агенты':'С комиссией']].map(([key,label])=>`<button data-action="${post?'post-market':'market'}" data-id="${key}" aria-pressed="${market===key}">${label}${post?'':` <span class="market-count">${all().filter(l=>C.matches(l,{market:key})).length}</span>`}</button>`).join('')}</div>`;
 }
 function layoutSwitch() {
   return `<div class="layout-switch" aria-label="Вид каталога">${[['list','Лента'],['grid','Сетка']].map(([key,label])=>`<button data-action="layout" data-id="${key}" aria-label="${label}" title="${label}" aria-pressed="${state.layout===key}">${icon(key)}</button>`).join('')}</div>`;
@@ -158,22 +161,22 @@ function albumHTML(l,compact=false) {
   return `<div class="photo-album photos-${visible.length}">${visible.map((p,i)=>`<button class="photo-tile" data-action="gallery" data-id="${esc(l.id)}" data-photo-index="${i}" aria-label="Фото ${i+1} из ${photos.length}: ${esc(l.address)}"><img src="${esc(thumbPhoto(p))}" data-full-src="${esc(safePhoto(p))}" alt="Фото жилья ${i+1}" loading="lazy" decoding="async"><span class="photo-missing">Фото не загрузилось</span>${i===0?`<span class="album-count">${photos.length} фото ${icon('photo')}</span>`:i===2&&photos.length>3?`<span class="album-count">+${photos.length-3}</span>`:''}</button>`).join('')}</div>`;
 }
 function card(l) {
-  const hint=l.residence_registration==='yes'?'Регистрация возможна':l.residence_registration==='ask'?'Регистрация — по условиям':l.pets==='yes'?'Можно с питомцем':'';
-  const verified=['owner_verified','representative_verified'].includes(l.document_status);
+  const hint=l.pets==='yes'?'Можно с питомцем':l.residence_registration==='yes'?'Регистрация возможна':'';
+  const grid=state.layout==='grid',photos=`<div class="card-photos">${albumHTML(l,grid)}${mapButton(l)}</div>`;
   return `<article class="listing" data-listing="${esc(l.id)}"><div class="listing-body">
-    <div class="listing-heading"><button class="listing-main" data-action="detail" data-id="${esc(l.id)}"><div class="price">${priceHTML(l)}</div><div class="listing-title">${esc(housing(l))}${l.area?' · '+esc(l.area)+' м²':''}</div><div class="listing-address">${esc([l.city,l.address].filter(Boolean).join(' · '))}</div></button>${mapButton(l)}</div>
-    ${commissionHTML(l)}${albumHTML(l,state.layout==='grid')}
-    <div class="card-top"><div class="card-metrics">${ageHTML(l)}${viewsHTML(l)}</div>${verified?'<span class="trust-badge">Сверен по документам</span>':l.role==='owner'?'<span class="claim-badge">От собственника*</span>':l.role==='agent'?'<span class="claim-badge">Агент</span>':''}</div>
+    ${grid?photos:''}<button class="listing-main" data-action="detail" data-id="${esc(l.id)}"><div class="price">${priceHTML(l)}</div><div class="listing-title">${esc(housing(l))}${l.area?' · '+esc(l.area)+' м²':''}</div><div class="listing-address">${esc([l.city!==state.filters.city?l.city:'',l.address].filter(Boolean).join(' · '))}</div></button>
+    ${l.commission>0?`<p class="commission-note paid-fee">${esc(commissionLabel(l))}</p>`:''}${grid?'':photos}
+    <div class="card-top">${ageHTML(l)}</div>
     <div class="card-extra">${travelHTML(l)}${availabilityHTML(l)}${hint?`<p class="availability-note">${esc(hint)}</p>`:''}</div>
-    <div class="listing-bottom"><button class="listing-photo-link" data-action="detail" data-id="${esc(l.id)}">Условия ${icon('right')}</button><button class="contact-button" data-action="contact" data-id="${esc(l.id)}" >${icon('send')}Связаться</button></div>
+    <div class="listing-bottom"><button class="listing-photo-link" data-action="detail" data-id="${esc(l.id)}">Условия ${icon('right')}</button><button class="contact-button" data-action="contact" data-id="${esc(l.id)}">${icon('send')}Связаться</button></div>
   </div></article>`;
 }
 function empty(title,text,button,action='nav',id='feed') {
   return `<div class="empty">${icon('search')}<h3>${esc(title)}</h3><p>${esc(text)}</p>${button?`<button class="button secondary" data-action="${action}" data-id="${id}">${esc(button)}</button>`:''}</div>`;
 }
 function alerts() {
-  return `<p class="intro">Новый вариант по вашим условиям — сразу в Telegram.</p>
-    ${state.subs.length?`<div class="stack">${state.subs.map(s=>`<div class="subscription">${icon('bell')}<button class="grow" style="text-align:left;padding:0" data-action="open-search" data-id="${esc(s.id)}"><p>${esc(s.name)}</p><small>${s.active?('Новые совпадения сразу'):'На паузе'}</small></button><button class="switch" role="switch" aria-checked="${!!s.active}" aria-label="Уведомлять: ${esc(s.name)}" data-action="toggle-sub" data-id="${esc(s.id)}"></button><button class="icon-button" data-action="delete-sub" data-id="${esc(s.id)}" aria-label="Удалить поиск">${icon('trash')}</button></div>`).join('')}</div>`:empty('Уведомления о новых вариантах','Выберите условия в ленте и нажмите «Уведомлять».','К ленте')}`;
+  return `<p class="intro">Уведомления о новых объявлениях, поданных в приложении.</p>
+    ${state.subs.length?`<div class="stack">${state.subs.map(s=>`<div class="subscription">${icon('bell')}<button class="grow" style="text-align:left;padding:0" data-action="open-search" data-id="${esc(s.id)}"><p>${esc(s.name)}</p><small>${s.active?(s.frequency==='daily'?'Раз в день':'Сразу после публикации'):'На паузе'}</small></button><button class="switch" role="switch" aria-checked="${!!s.active}" aria-label="Уведомлять: ${esc(s.name)}" data-action="toggle-sub" data-id="${esc(s.id)}"></button><button class="icon-button" data-action="delete-sub" data-id="${esc(s.id)}" aria-label="Удалить поиск">${icon('trash')}</button></div>`).join('')}</div>`:empty('Уведомления о новых вариантах','Откройте фильтры в ленте и включите уведомления.','К ленте')}`;
 }
 function formProgress() {
   return `<ol class="form-progress" aria-label="Шаги подачи">${['Жильё','Адрес','Цена','Детали'].map((label,i)=>`<li class="${i===state.formStep?'current':i<state.formStep?'done':''}" ${i===state.formStep?'aria-current="step"':''}><span>${i<state.formStep?icon('check'):i+1}</span>${label}</li>`).join('')}</ol>`;
@@ -313,7 +316,7 @@ async function detail(id,cached=false) {
   void recordView(l);
 }
 function mineSheet() {
-  showSheet('Мои объявления',state.own.map(l=>`<article class="my-row" data-mine-id="${esc(l.id)}"><h3>${esc(l.city)} · ${esc(l.address)}</h3><div class="card-metrics">${ageHTML(l)}${viewsHTML(l)}</div><p>${priceHTML(l,{})}</p><p class="listing-status status-${esc(l.status)}">${esc(niceStatus(l))}</p>${l.ban_reason||l.review_reason?`<div class="moderation-reason"><strong>${l.status==='banned'?'Причина блокировки':'Комментарий модератора'}</strong><p>${esc(l.ban_reason||l.review_reason)}</p></div>`:''}${['active','rented'].includes(l.status)?`<button class="text-button" data-action="detail" data-id="${esc(l.id)}">Открыть карточку</button><button class="button secondary" data-action="status" data-id="${esc(l.id)}" data-status="${l.status==='active'?'rented':'active'}">${l.status==='active'?'Отметить «Сдано»':'Снова актуально'}</button>`:''}${['active','review'].includes(l.status)?`<button class="text-button" data-action="verify" data-id="${esc(l.id)}">${l.document_status==='pending'?'Документ на проверке':'Подтвердить собственность'}</button>`:''}</article>`).join('')||'<p class="note">Пока нет объявлений. Нажмите «Сдать», чтобы добавить жильё.</p>','','mine');
+  showSheet('Мои объявления',(state.user?.is_admin?'<button class="choice-row" data-action="open-admin"><span>Модерация</span>'+icon('right')+'</button>':'')+(state.own.map(l=>`<article class="my-row" data-mine-id="${esc(l.id)}"><h3>${esc(l.city)} · ${esc(l.address)}</h3><div class="card-metrics">${ageHTML(l)}${viewsHTML(l)}</div><p>${priceHTML(l,{})}</p><p class="listing-status status-${esc(l.status)}">${esc(niceStatus(l))}</p>${l.ban_reason||l.review_reason?`<div class="moderation-reason"><strong>${l.status==='banned'?'Причина блокировки':'Комментарий модератора'}</strong><p>${esc(l.ban_reason||l.review_reason)}</p></div>`:''}${['active','rented'].includes(l.status)?`<button class="text-button" data-action="detail" data-id="${esc(l.id)}">Открыть карточку</button><button class="button secondary" data-action="status" data-id="${esc(l.id)}" data-status="${l.status==='active'?'rented':'active'}">${l.status==='active'?'Отметить «Сдано»':'Снова актуально'}</button>`:''}${['active','review'].includes(l.status)?`<button class="text-button" data-action="verify" data-id="${esc(l.id)}">${l.document_status==='pending'?'Документ на проверке':'Подтвердить собственность'}</button>`:''}</article>`).join('')||'<p class="note">Пока нет объявлений.</p>'),`<button class="button" data-action="nav" data-id="add">${icon('plus')}Подать объявление</button>`,'mine');
 }
 async function refreshAdmin() {
   if(state.adminTab==='import'){[state.sourceStatus,state.sourcePosts]=await Promise.all([api('/api/admin/source'),api('/api/admin/source/posts')]);return;}
@@ -433,7 +436,7 @@ async function follow() {
   const s={id:'q'+uid(),name:filterSummary(state.filters),frequency:'instant',active:true,filters:{...state.filters}};
   s.id=(await api('/api/subscriptions','POST',s)).id;
   state.subs.push(s); persist(); render();
-  toast('Будем присылать новые совпадения.');
+  toast('Уведомления включены для объявлений из приложения.');
 }
 async function toggleSub(id) {
   const s=state.subs.find(s=>s.id===id); if (!s) return;
@@ -577,7 +580,7 @@ async function action(a,id,el) {
   if (a==='open-admin'){if(!state.user?.is_admin)return;await refreshAdmin();navigate('admin');return;}
   if (a==='official') {safeOpen('https://www.e-cadastre.am/ru/application/docview');return;}
   if (a==='telegram-contact'){const l=item(id);safeOpen('https://t.me/'+l.contact.slice(1));return;}
-  if (a==='nav') { navigate(id); return; }
+  if (a==='nav') { if(id==='alerts')captureConditionFilters(); navigate(id); return; }
   if (a==='back') { back(); return; }
   if (a==='close'||a==='backdrop') { closeSheet(); return; }
   if (a==='budget') return budgetSheet();
@@ -607,7 +610,7 @@ async function action(a,id,el) {
   if (a==='unban'){el.disabled=true;try{await api('/api/admin/'+id+'/unban','POST',{});await refreshAdmin();await refresh();render();toast('Блокировка снята.');}finally{if(el.isConnected)el.disabled=false;}return;}
   if (a==='author-listings') return authorListings(id,el);
   if (a==='listing-post') {const l=item(id),url=l?.telegram_post_url;if(url)safeOpen(url);return;}
-  if (a==='follow') return follow();
+  if (a==='follow') {captureConditionFilters();await follow();if(sheetKind==='conditions-filter')filterConditions();return;}
   if (a==='toggle-sub') return toggleSub(id);
   if (a==='delete-sub') {
     await api('/api/subscriptions/'+id,'DELETE');
@@ -653,6 +656,7 @@ document.addEventListener('input',e=>{
   captureStep();
 });
 document.addEventListener('change',e=>{
+  if(e.target.closest('#filter-conditions')){const control=$('.filter-alerts [data-action=follow]');if(control)control.setAttribute('aria-checked',String(!!currentSubscription(conditionFilters())?.active));}
   if(e.target.id==='city-input')updateAddressCity(true);
   if(e.target.id==='agent-work'){const independent=e.target.value==='independent';$('#agency-row').hidden=independent;$('#agent-agency').required=!independent;}
   captureStep();
@@ -877,9 +881,17 @@ function trustHTML(l) {
   return `<details class="trust-box"><summary>${icon(verified||l.document_status==='document_checked'?'check':'info')}<span>${title}</span>${icon('down')}</summary><p class="note">${detail}</p>${l.verification?.checked_on?`<p class="note">Дата сверки: ${esc(l.verification.checked_on)}</p>`:''}<button class="text-button" data-action="official">Официальный способ проверки ↗</button></details>`;
 }
 
+const conditionKeys=['pets','owner','contract','residence_registration','verified'];
+function conditionFilters() {
+  const form=$('#filter-conditions'),filters={...state.filters};if(!form)return filters;
+  const values=new FormData(form);
+  for(const key of conditionKeys)filters[key]=values.has(key);
+  return filters;
+}
+function captureConditionFilters() {state.filters=conditionFilters();persist();}
 function filterConditions() {
-  const f=state.filters;
-  showSheet('Только когда это важно',`<form id="filter-conditions" class="stack">${[['contract','Готовы подписать договор'],['residence_registration','Возможна регистрация проживания'],['verified','Личность и право сверены']].map(([k,t])=>`<label class="check-row"><input type="checkbox" name="${k}" ${f[k]?'checked':''}><span>${t}</span></label>`).join('')}<p class="note">Поиск учитывает согласие и регистрацию по договорённости. Условия и цена — в карточке.</p></form>`,`<button type="submit" form="filter-conditions" class="button">Показать варианты</button>`,'conditions-filter');
+  const f=state.filters,sub=currentSubscription();
+  showSheet('Фильтры',`<form id="filter-conditions" class="stack">${[['pets','Можно с питомцем'],...(f.market==='free'?[['owner','От собственника']]:[]),['contract','Готовы подписать договор'],['residence_registration','Возможна регистрация проживания'],['verified','Личность и право сверены']].map(([k,t])=>`<label class="check-row"><input type="checkbox" name="${k}" ${f[k]?'checked':''}><span>${t}</span></label>`).join('')}</form><div class="filter-alerts"><div class="row between"><span>Уведомлять о новых</span><button class="switch" data-action="follow" role="switch" aria-label="Уведомлять о новых объявлениях" aria-checked="${!!sub?.active}"></button></div><p class="note">Только объявления, поданные в приложении.</p><button class="choice-row" data-action="nav" data-id="alerts"><span>Мои подписки${state.subs.length?' · '+state.subs.length:''}</span>${icon('right')}</button></div>`,`<button type="submit" form="filter-conditions" class="button">Показать варианты</button>`,'conditions-filter');
 }
 async function agentProfileSheet() {
   if(!requireUser())return;
@@ -926,7 +938,7 @@ async function handleExtraForm(form,x) {
   if(form.id==='commission-form'){const amount=Number(x.amount),fixed=['AMD','USD'].includes(x.fee_unit);if(!Number.isInteger(amount)||amount<=0||amount>(fixed?1000000000:100))return toast('Укажите корректную комиссию.');Object.assign(state.draft,{commission:amount,commission_type:fixed?'fixed':'percent',commission_currency:fixed?x.fee_unit:'AMD',commission_basis:x.fee_unit==='percent_day'?'day':'month',role:'agent'});state.postMarket='paid';closeSheet();render();return;}
 
   if(form.id==='filter-conditions'){
-    for(const k of ['contract','residence_registration','verified'])state.filters[k]=x[k]==='on';closeSheet();persist();render();return;
+    captureConditionFilters();closeSheet();render();return;
   }
   if(form.id==='contact-form'){
     x.phone=x.phone.replace(/[ ()\-\u00a0]/g,'');

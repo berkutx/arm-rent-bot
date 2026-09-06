@@ -1,5 +1,5 @@
 """Mobile import review and push refresh against an isolated database."""
-import json,os,sys,tempfile,time
+import json,os,re,sys,tempfile,time
 from pathlib import Path
 from urllib.parse import urlparse
 R=Path(__file__).resolve().parents[1];sys.path.insert(0,str(R))
@@ -30,7 +30,7 @@ with tempfile.TemporaryDirectory(prefix='source-mobile-',ignore_cleanup_errors=T
    req.fulfill(status=response.status_code,content_type=response.headers.get('content-type','application/json'),body=response.content)
   page.route('**/*',route);page.goto('https://rent.test/');page.locator('.listing').first.wait_for()
   page.evaluate('streams[0].onmessage({data:JSON.stringify({revision:"initial"})})')
-  page.locator('[data-action=open-admin]').click();page.locator('[data-action=admin-tab][data-id=import]').click()
+  page.locator('#header [data-action=mine]').click();page.locator('.sheet [data-action=open-admin]').click();page.locator('[data-action=admin-tab][data-id=import]').click()
   page.locator('[data-action=source-post]').click();page.locator('#source-form').wait_for()
   assert not page.locator('#source-city').evaluate('(x)=>x.checkValidity()')
   page.locator('#source-city').fill('Ереван');page.locator('#source-address').fill('Улица 20');page.locator('#source-district').select_option('Кентрон');page.locator('#source-kind').select_option('apartment');page.locator('#source-rooms').fill('2');page.locator('#source-price').fill('350000');page.locator('select[name=currency]').select_option('AMD');page.locator('select[name=period]').select_option('month');page.locator('#source-fee').fill('50')
@@ -41,7 +41,7 @@ with tempfile.TemporaryDirectory(prefix='source-mobile-',ignore_cleanup_errors=T
   page.locator('[data-action=market][data-id=paid]').click()
   expect(page.locator('[data-action=market][data-id=paid] .market-count')).to_have_text('1')
   expect(page.locator('.empty')).to_contain_text('Нор-Норк')
-  expect(page.locator('[data-action=district]')).to_have_class('filter-chip selected')
+  expect(page.locator('#header [data-action=district]')).to_have_class(re.compile(r'\bselected\b'))
   for width in [320,390]:
    page.set_viewport_size({'width':width,'height':844})
    assert page.evaluate('document.documentElement.scrollWidth')==width
@@ -68,7 +68,7 @@ with tempfile.TemporaryDirectory(prefix='source-mobile-',ignore_cleanup_errors=T
   page.wait_for_function('!document.querySelector(".detail-sheet")')
   assert page.locator('[data-listing="'+lid+'"]').count()==0
   page.evaluate('async raw=>{tg.initData=raw;state.user=await api("/api/me");await refresh();navigate("feed",false);}',signed(42)['X-Telegram-Init-Data'])
-  page.locator('[data-action=mine]').click()
+  page.locator('#header [data-action=mine]').click()
   assert 'Удалено в Telegram' in page.locator('[data-mine-id="'+lid+'"]').inner_text()
   assert not errors,errors
   result={'result':'passed','scenarios':['admin reviews imported paid offer','price and address history','push refresh of open card','deleted post removed without reload'],'js_errors':errors,'telegram_network_calls':0}

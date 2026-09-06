@@ -76,6 +76,8 @@ with tempfile.TemporaryDirectory(prefix='rent-gallery-', ignore_cleanup_errors=T
         page.route('**/*', route)
         page.goto('https://rent.test/')
         expect(page.locator('.listing')).to_have_count(4)
+        expect(page.locator('#dock')).to_be_hidden()
+        assert not page.locator('#header [data-id=alerts],#main [data-action=follow]').count()
         def districts(total, each):
             page.locator('[data-action=district]').click()
             if page.locator('#filter-city').input_value()!='Ереван':
@@ -87,11 +89,15 @@ with tempfile.TemporaryDirectory(prefix='rent-gallery-', ignore_cleanup_errors=T
             expect(page.locator('[data-action=select-district][data-id=""] .district-count')).to_have_text(str(total))
             for name in ['Кентрон','Арабкир']:
                 expect(page.locator('[data-action=select-district][data-id="'+name+'"] .district-count')).to_have_text(str(each))
+            page.locator('.sheet').evaluate('(x)=>Promise.all(x.getAnimations().map(a=>a.finished))')
             for width in [320,360,390,430]:
                 page.set_viewport_size({'width':width,'height':844})
                 assert page.evaluate('document.documentElement.scrollWidth')==width
                 for box in page.locator('[data-action=select-district]').all():
-                    rect=box.bounding_box();assert rect and rect['y']>=0 and rect['y']+rect['height']<=844
+                    rect=box.bounding_box()
+                    if not (rect and rect['y']>=0 and rect['y']+rect['height']<=844):
+                        page.screenshot(path=str(OUT/f'district-overflow-{total}-{width}.png'),animations='disabled')
+                    assert rect and rect['y']>=0 and rect['y']+rect['height']<=844,(width,box.inner_text(),rect,page.locator('.sheet').evaluate('(x)=>x.getAnimations().map(a=>({playState:a.playState,currentTime:a.currentTime}))'))
             page.set_viewport_size({'width':390,'height':844})
             page.screenshot(path=str(OUT/'all-districts-390.png'),animations='disabled')
             page.locator('[data-action=select-district][data-id="Нубарашен"]').click()
@@ -174,8 +180,11 @@ with tempfile.TemporaryDirectory(prefix='rent-gallery-', ignore_cleanup_errors=T
         districts(2,1)
         assert all('80' in text for text in page.locator('.commission-note').all_text_contents())
         page.evaluate('tg.colorScheme="dark";applyTheme()')
-        page.screenshot(path=str(OUT/'paid-grid-dark-390.png'), animations='disabled')
-        page.locator('[data-action=nav][data-id=add]').click()
+        for width in [320,390]:
+            page.set_viewport_size({'width':width, 'height':844})
+            assert page.evaluate('document.documentElement.scrollWidth') == width
+            page.screenshot(path=str(OUT/f'paid-grid-dark-{width}.png'), animations='disabled')
+        page.locator('#header [data-action=nav][data-id=add]').click()
         page.locator('[data-action=choose-kind][data-id=apartment]').click()
         page.locator('[data-action=choose-rooms][data-id="2"]').click()
         page.locator('#continue').click()

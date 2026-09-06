@@ -1149,11 +1149,15 @@ async def process_job(j):
         with db() as c:
             ss=c.execute("SELECT * FROM subscriptions WHERE uid=? AND active=1 AND frequency='daily'",(uid,)).fetchall()
             delivered={x['lid'] for x in c.execute('SELECT lid FROM deliveries WHERE uid=?',(uid,))}
-            rs=c.execute("SELECT * FROM listings WHERE status='active' ORDER BY created DESC").fetchall()
+            rs=c.execute("SELECT * FROM listings WHERE status='active' AND json_extract(payload,'$._source_post') IS NULL ORDER BY created DESC").fetchall()
         ls=[listing(x) for x in rs if x['id'] not in delivered and any(x['created']>=s['created'] and matches(listing(x),json.loads(s['filters'])) for s in ss)]
-        if not ls:return
-        selected=ls[:8];txt='Новые варианты по вашим фильтрам\n\n'+'\n\n'.join(public_text(x)+'\n'+link('l_'+x['id']) for x in selected)
-        await tg('sendMessage',{'chat_id':uid,'text':txt[:4000],'link_preview_options':{'is_disabled':True}})
+        selected=[];txt='Новые варианты по вашим фильтрам'
+        for x in ls[:8]:
+            candidate=txt+'\n\n'+public_text(x)+'\n'+link('l_'+x['id'])
+            if len(candidate.encode('utf-16-le'))//2>4000:break
+            selected.append(x);txt=candidate
+        if not selected:return
+        await tg('sendMessage',{'chat_id':uid,'text':txt,'link_preview_options':{'is_disabled':True}})
         with db() as c:
             for x in selected:c.execute('INSERT OR IGNORE INTO deliveries VALUES(?,?)',(uid,x['id']))
     elif kind=='verification_result':
