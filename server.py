@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import parse_qsl
 import httpx
+from source_sync import SourceStore,SourceCatalog,run_reader
 from cryptography.fernet import Fernet
 from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -35,6 +36,9 @@ CIPHER=None
 VIEW_SECRET=None
 log=logging.getLogger('rent')
 FILE_PATHS={}
+SOURCE_STORE=SourceStore(lambda:db())
+SOURCE_CATALOG=SourceCatalog(__import__("sys").modules[__name__],SOURCE_STORE)
+CATALOG_CHANGED=asyncio.Event()
 
 def db():
     c=sqlite3.connect(DB,timeout=15);c.row_factory=sqlite3.Row
@@ -93,6 +97,8 @@ def setup():
             for row in hidden:
                 c.execute('INSERT OR IGNORE INTO jobs(kind,payload,jobkey,run_at) VALUES(?,?,?,?)',('edit',json.dumps({'id':row['id']}),'v4-restore:'+row['id'],time.time()))
             c.execute("INSERT INTO meta(key,value) VALUES('age_only_v4','1')")
+
+    SOURCE_STORE.setup()
 
 
 def normalize_phone(value):
@@ -255,6 +261,7 @@ def listing(r,mine=False):
     source=d.pop('_source_post',None)
     post=d.pop('_telegram_post',None) or source
     d.pop('_status_before_ban',None)
+    for key in ('_source_key','_source_review','_source_deleted','_source_previous_status'):d.pop(key,None)
     d['view_count']=r['view_count']
     d['phone_listings_available']=bool(r['phone_key'] and d.get('role')!='agent')
     d['telegram_post_url']=telegram_post_url(post)
@@ -304,7 +311,10 @@ async def lifespan(app):
     if LIVE and (not TOKEN or not re.fullmatch(r'[A-Za-z0-9_]{5,32}',BOT) or not PUBLIC_URL.startswith('https://') or not ADMINS):
         raise RuntimeError('For LIVE=1 set BOT_TOKEN, BOT_USERNAME, HTTPS PUBLIC_URL and ADMIN_IDS in .env.')
     tasks=[]
-    if LIVE:tasks=[asyncio.create_task(poll()),asyncio.create_task(worker())]
+    if LIVE:
+        tasks=[asyncio.create_task(poll()),asyncio.create_task(worker())]
+        if os.getenv('TELEGRAM_SYNC_ENABLED','0')=='1':
+            tasks.extend([asyncio.create_task(source_reader_loop()),asyncio.create_task(source_worker())])
     try:yield
     finally:
         for t in tasks:t.cancel()
@@ -331,7 +341,7 @@ async def index():
     s=(ROOT/'web/index.html').read_text(encoding='utf-8')
     return HTMLResponse(s)
 @app.get('/api/config')
-async def config():return {'live':LIVE,'bot_username':BOT if LIVE else '', 'version':'0.5.0','channel_configured':bool(LIVE and CHAT),'paid_channel_configured':bool(LIVE and PAID_CHAT)}
+async def config():return {'live':LIVE,'bot_username':BOT if LIVE else '', 'version':'0.5.0','channel_configured':bool(LIVE and CHAT),'paid_channel_configured':bool(LIVE and PAID_CHAT),'source_enabled':os.getenv('TELEGRAM_SYNC_ENABLED','0')=='1'}
 
 @app.get('/healthz')
 async def health():
@@ -555,6 +565,9 @@ async def media(filename:str):
     match=re.fullmatch(r'([a-f0-9]{32})(-thumb)?\.jpg',filename)
     if not match:raise HTTPException(404)
     photo=photo_sizes(match[1])['thumb' if match[2] else 'full']
+    if photo.get('source_key'):
+        with db() as c:visible=c.execute("SELECT 1 FROM listings l,json_each(l.payload,'$.photos') p WHERE l.status IN ('active','rented') AND json_extract(l.payload,'$._source_key')=? AND json_extract(p.value,'$.id')=?",(photo['source_key'],match[1])).fetchone()
+        if not visible:raise HTTPException(404,'Фото удалено из объявления')
     if photo.get('source_post'):
         return RedirectResponse(await source_photo_url(photo),status_code=302,headers={'Cache-Control':'public, max-age=300'})
     return await stream_telegram_photo(photo)
@@ -725,6 +738,76 @@ async def resolve_report(rid:str,x:ReportDecision,u=Depends(admin_user)):
     if x.outcome=='ban' and getrow(r['lid'])['channel_message']:enqueue('edit',{'id':r['lid']},'report-ban:'+rid)
     return report_view(report_row(rid,u['id']))
 
+@app.get('/api/admin/source')
+async def source_status(u=Depends(admin_user)):
+    with db() as c:
+        counts={r['state']:r['n'] for r in c.execute('SELECT state,COUNT(*) n FROM source_posts GROUP BY state')}
+        staged=c.execute("SELECT COUNT(*) FROM listings WHERE status='source_staged'").fetchone()[0]
+    return {'enabled':os.getenv('TELEGRAM_SYNC_ENABLED','0')=='1','connection':SOURCE_STORE.get('connection',{'state':'disabled'}),
+            'history_complete':SOURCE_STORE.get('history_complete',False),'activated':SOURCE_STORE.get('activated',False),
+            'history_checked':SOURCE_STORE.get('history_checked'),'reconciled_at':SOURCE_STORE.get('reconciled_at'),'counts':counts,'staged':staged}
+
+@app.get('/api/admin/source/posts')
+async def source_posts(u=Depends(admin_user)):
+    with db() as c:rows=c.execute("SELECT * FROM source_posts WHERE state='review' ORDER BY updated DESC LIMIT 200").fetchall()
+    return [SOURCE_CATALOG.view(r) for r in rows]
+
+class SourceDecision(BaseModel):
+    revision:str=Field(pattern='^[a-f0-9]{64}$')
+    fields:ListingIn|None=None
+    ignore:bool=False
+
+@app.post('/api/admin/source/posts/{key}')
+async def source_decision(key:str,x:SourceDecision,u=Depends(admin_user)):
+    snapshot=SOURCE_STORE.snapshot(key)
+    if not snapshot['root']:raise HTTPException(404,'Пост не найден')
+    if snapshot['revision']!=x.revision:raise HTTPException(409,'Пост изменился. Откройте последнюю версию')
+    try:
+        if x.ignore:SOURCE_CATALOG.hold(snapshot,'ignored','Пропущено администратором')
+        elif x.fields:SOURCE_CATALOG.apply(snapshot,x.fields.model_dump())
+        else:raise HTTPException(400,'Заполните поля объявления')
+    except ValueError as error:raise HTTPException(400,str(error)) from None
+    audit(u['id'],'','source_review')
+    return {'ok':True}
+
+@app.post('/api/admin/source/activate')
+async def source_activate(u=Depends(admin_user)):
+    try:return SOURCE_CATALOG.activate()
+    except ValueError as error:raise HTTPException(409,str(error)) from None
+
+@app.get('/api/catalog-events')
+async def catalog_events(request:Request):
+    async def changes():
+        last=None
+        while not await request.is_disconnected():
+            CATALOG_CHANGED.clear()
+            revision=SOURCE_STORE.get('catalog_revision','0')
+            if revision!=last:
+                last=revision;yield 'data: '+dumps({'revision':revision})+'\n\n'
+            else:yield ': keepalive\n\n'
+            with contextlib.suppress(asyncio.TimeoutError):await asyncio.wait_for(CATALOG_CHANGED.wait(),15)
+    return StreamingResponse(changes(),media_type='text/event-stream',headers={'Cache-Control':'no-store','X-Accel-Buffering':'no'})
+
+async def source_reader_loop():
+    while True:
+        try:await run_reader(SOURCE_STORE,DATA)
+        except asyncio.CancelledError:raise
+        except OSError:
+            SOURCE_STORE.set('connection',{'state':'reader_busy'})
+        except Exception as error:
+            log.warning('Source reader failed (%s)',type(error).__name__)
+            SOURCE_STORE.set('connection',{'state':'disconnected'})
+        await asyncio.sleep(30)
+
+async def source_worker():
+    while True:
+        try:
+            if not SOURCE_CATALOG.process_one():await asyncio.sleep(1)
+            else:await asyncio.sleep(0)
+        except asyncio.CancelledError:raise
+        except Exception as error:
+            log.warning('Source processing failed (%s)',type(error).__name__);await asyncio.sleep(5)
+
 @app.get('/api/admin/queue')
 async def queue(u=Depends(admin_user)):
     with db() as c:rs=c.execute("SELECT * FROM listings WHERE status='review' OR private IS NOT NULL ORDER BY created").fetchall()
@@ -762,6 +845,8 @@ async def unban_listing(lid:str,u=Depends(admin_user)):
         if r['status']!='banned':raise HTTPException(409,'Объявление не заблокировано')
         d=json.loads(r['payload']);status=d.pop('_status_before_ban','review')
         if status not in ('active','rented','review','rejected'):status='review'
+        if d.get('_source_deleted'):status='source_deleted'
+        elif d.get('_source_review'):status='review'
         c.execute("UPDATE listings SET status=?,reason='',payload=? WHERE id=?",(status,dumps(d),lid))
     audit(u['id'],lid,'unban')
     if r['channel_message']:enqueue('edit',{'id':lid},f'unban-edit:{lid}:{secrets.token_hex(4)}')
@@ -777,6 +862,8 @@ async def private_data(lid:str,u=Depends(admin_user)):
 def decision(lid,uid,what):
     if uid not in ADMINS:raise HTTPException(403,'Только для администраторов')
     r=getrow(lid);d=json.loads(r['payload']);status=r['status']
+    if d.get('_source_key') and not SOURCE_STORE.get('activated',False):raise HTTPException(409,'Сначала переключите каталог в разделе Импорт')
+    if d.get('_source_review') or d.get('_source_deleted'):raise HTTPException(409,'Откройте актуальную версию в разделе Импорт')
     if status=='banned':raise HTTPException(409,'Сначала снимите блокировку в форме администратора')
     if what=='document_checked':
         raise HTTPException(400,'Используйте отдельную форму проверки: нужны результат и критерии сверки')

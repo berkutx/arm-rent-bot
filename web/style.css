@@ -254,9 +254,10 @@ details .details-text { padding:0 15px 17px; }
 .brand-name {font-size:18px;line-height:1.12;letter-spacing:-.4px;max-width:205px}
 .brand-icon {width:35px;height:35px;border-radius:11px}
 .brand {gap:9px;min-width:0}.brand-caption {font-size:11px;margin-top:4px}
-.market-switch {display:flex;gap:4px;background:var(--tint);border-radius:13px;padding:4px;margin:0 0 14px}
+.market-switch {display:flex;gap:4px;background:var(--surface);border:1px solid var(--border);border-radius:13px;padding:4px;margin:0 0 14px}
 .market-switch button {flex:1;padding:8px 6px;border-radius:10px;font-size:13px;font-weight:650;min-width:0}
-.market-switch button[aria-pressed=true] {background:var(--surface);box-shadow:0 1px 4px #0001;color:var(--accent)}
+.market-switch button[aria-pressed=true] {background:var(--accent);color:var(--on-accent)}
+.market-count {font-size:11px;opacity:.8;white-space:nowrap}
 .layout-switch {display:flex;gap:3px;background:var(--tint);padding:3px;border-radius:10px}
 .layout-switch button {font-size:12px;padding:5px 13px;min-height:36px;border-radius:8px}
 .layout-switch button[aria-pressed=true] {background:var(--surface);color:var(--accent);font-weight:650}
@@ -347,3 +348,10 @@ details .details-text { padding:0 15px 17px; }
 .report-content { overflow-wrap:anywhere; }
 .report-proofs { display:grid; gap:12px; }
 .report-proofs img { display:block; width:100%; height:auto; border-radius:8px; }
+
+.history-change { padding:8px 14px; font-size:13px; overflow-wrap:anywhere; }
+.history-change p { margin:4px 0; }
+.history-change small,.history-change s { color:var(--muted); }
+.source-text { max-height:280px; overflow:auto; }
+
+#source-form .field-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }

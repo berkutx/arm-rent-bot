@@ -31,3 +31,5 @@ deploy/generated/
 Thumbs.db
 .idea/
 .vscode/
+*.session
+*.session-*

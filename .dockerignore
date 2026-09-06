@@ -18,3 +18,5 @@ output
 *.zip
 *.key
 *.pem
+*.session
+*.session-*

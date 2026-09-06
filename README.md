@@ -14,11 +14,15 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-Нужен доверенный HTTPS. LIVE=1 включает Telegram; LIVE=0 позволяет запускать API локально без poller. Данные — data/rent.sqlite3. Карточки из архива Telegram загружаются отдельно от кода, с исходными датами и ссылками; повторной публикации нет.
+Нужен доверенный HTTPS. LIVE=1 включает Telegram; LIVE=0 позволяет запускать API локально без poller. Данные — data/rent.sqlite3. Источник Telegram: первичная загрузка за 10 дней, затем события новых постов, правок и удалений. Пропуски сверяются каждую минуту, известные сообщения — пакетами по 100, начиная с непроверенных 5 минут. Дата публикации сохраняется; в истории — только цена, город и адрес.
 
 PUBLISH_CHAT_ID/PUBLISH_THREAD_ID — публикации без комиссии; PUBLISH_PAID_CHAT_ID/PUBLISH_PAID_THREAD_ID — агентские. Пустые значения отключают публикацию. Пока обсуждение не подключено, его кнопка недоступна.
 
 Один FastAPI-процесс, SQLite/WAL, 256 MiB RAM. Node, Redis и Postgres для запуска не нужны. Фото отправляются в чат бота; Telegram хранит их и готовит размеры. Сервер хранит file_id и передаёт фото без обработки, скрывая токен. Фото публичных постов браузер загружает напрямую с Telegram CDN. Галерея — PhotoSwipe (MIT, web/vendor).
+
+Для чтения канала заполнить TELEGRAM_API_ID/TELEGRAM_API_HASH с my.telegram.org, TELEGRAM_SOURCE и TELEGRAM_TOPICS в .env. Выполнить `python scripts/telegram_login.py` интерактивно. Сессия data/telegram-reader.session принадлежит одному процессу; коды входа и пароль в .env не сохраняются. После переноса сессии на сервер включить TELEGRAM_SYNC_ENABLED=1. Используйте отдельный аккаунт без личной переписки, состоящий в источнике. Сессия даёт доступ к аккаунту; отозвать её можно в Telegram → Настройки → Устройства.
+
+Посты проверяются в «Админ → Импорт». Первое переключение заменяет прежний импорт этого канала готовыми карточками; самостоятельные объявления и настройки сохраняются. Импорт не пишет в канал.
 
 ## Изменения и обслуживание
 
@@ -31,6 +35,7 @@ node tests/test_core.js
 python tests/mobile_smoke.py
 python tests/mobile_moderation.py
 python tests/mobile_gallery.py
+python tests/mobile_source.py
 ```
 
 Для браузерных тестов установить Chromium: `python -m playwright install chromium` или задать CHROMIUM_PATH.

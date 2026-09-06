@@ -682,9 +682,10 @@ details .details-text { padding:0 15px 17px; }
 .brand-name {font-size:18px;line-height:1.12;letter-spacing:-.4px;max-width:205px}
 .brand-icon {width:35px;height:35px;border-radius:11px}
 .brand {gap:9px;min-width:0}.brand-caption {font-size:11px;margin-top:4px}
-.market-switch {display:flex;gap:4px;background:var(--tint);border-radius:13px;padding:4px;margin:0 0 14px}
+.market-switch {display:flex;gap:4px;background:var(--surface);border:1px solid var(--border);border-radius:13px;padding:4px;margin:0 0 14px}
 .market-switch button {flex:1;padding:8px 6px;border-radius:10px;font-size:13px;font-weight:650;min-width:0}
-.market-switch button[aria-pressed=true] {background:var(--surface);box-shadow:0 1px 4px #0001;color:var(--accent)}
+.market-switch button[aria-pressed=true] {background:var(--accent);color:var(--on-accent)}
+.market-count {font-size:11px;opacity:.8;white-space:nowrap}
 .layout-switch {display:flex;gap:3px;background:var(--tint);padding:3px;border-radius:10px}
 .layout-switch button {font-size:12px;padding:5px 13px;min-height:36px;border-radius:8px}
 .layout-switch button[aria-pressed=true] {background:var(--surface);color:var(--accent);font-weight:650}
@@ -775,6 +776,13 @@ details .details-text { padding:0 15px 17px; }
 .report-content { overflow-wrap:anywhere; }
 .report-proofs { display:grid; gap:12px; }
 .report-proofs img { display:block; width:100%; height:auto; border-radius:8px; }
+
+.history-change { padding:8px 14px; font-size:13px; overflow-wrap:anywhere; }
+.history-change p { margin:4px 0; }
+.history-change small,.history-change s { color:var(--muted); }
+.source-text { max-height:280px; overflow:auto; }
+
+#source-form .field-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
 </style>
   <script>
   if (/tgWebApp/.test(location.hash + location.search)) {
@@ -941,7 +949,7 @@ function priceHTML(l, filters=state.filters) {
   return p ? `${p.amount_max?'от ':''}${money(p.amount)} ${esc(sym(p.currency))} <small>/ ${unit(p.period)}</small>` : 'Укажите цену';
 }
 const shortDate = d => d ? new Date(d.slice(0,10)+'T12:00:00').toLocaleDateString('ru-RU',{day:'numeric',month:'short'}) : '';
-const niceStatus = l => ({active:'Актуально · в ленте',review:'На модерации',rented:'Сдано',rejected:'Не опубликовано',banned:'Заблокировано'})[l.status] || l.status;
+const niceStatus = l => ({active:'Актуально · в ленте',review:'На модерации',rented:'Сдано',rejected:'Не опубликовано',banned:'Заблокировано',source_deleted:'Удалено в Telegram',source_staged:'Готово к импорту'})[l.status] || l.status;
 const displayStatus = l => l.status;
 function exactDate(l) {
   const ms=C.createdMs(l);
@@ -957,14 +965,14 @@ function safePhoto(p) {
 }
 function filtered() {
   const records = all().filter(l => displayStatus(l)==='active' && C.matches(l,state.filters));
-  return records.sort((a,b) => state.sort === 'price' ? C.offer(a,state.filters).amount-C.offer(b,state.filters).amount || C.newestFirst(a,b) : C.newestFirst(a,b));
+  return records.sort((a,b) => state.sort === 'price' ? C.offer(a,state.filters).currency.localeCompare(C.offer(b,state.filters).currency)||C.offer(a,state.filters).period.localeCompare(C.offer(b,state.filters).period)||C.offer(a,state.filters).amount-C.offer(b,state.filters).amount||C.newestFirst(a,b) : C.newestFirst(a,b));
 }
 function filterKey(f) { return JSON.stringify(Object.keys(baseFilters()).map(k => [k, f[k] ?? baseFilters()[k]])); }
 function currentSubscription() { return state.subs.find(s => filterKey(s.filters) === filterKey(state.filters)); }
 function housingFilterLabel(f) { return f.kind === 'room' ? 'Комната' : f.kind === 'house' ? 'Дом' : f.rooms === '0' ? 'Студия' : f.rooms ? `${f.rooms} комн.` : 'Комнаты'; }
 function filterSummary(f) {
-  return [f.market==='paid'?'С комиссией':'Без комиссии',f.district || f.city || 'Все районы', housingFilterLabel(f)==='Комнаты' ? '' : housingFilterLabel(f),
-    f.max ? `до ${money(f.max)} ${sym(f.currency)}` : sym(f.currency), f.period === 'day' ? 'за сутки' : 'за месяц'].filter(Boolean).join(' · ');
+  return [f.market==='paid'?'С комиссией':'Без комиссии',f.district || f.city || 'Все города', housingFilterLabel(f)==='Комнаты' ? '' : housingFilterLabel(f),
+    f.max ? `до ${money(f.max)} ${sym(f.currency)}` : f.currency?sym(f.currency):'', f.period === 'day' ? 'за сутки' : f.period==='month'?'за месяц':'',f.owner?'Собственник':'',f.pets?'С животными':'',f.contract?'С договором':'',f.residence_registration?'С регистрацией':'',f.verified?'Проверенные':'',f.q].filter(Boolean).join(' · ');
 }
 function header() {
   if (['add','review','admin','alerts'].includes(state.screen)) {
@@ -994,10 +1002,10 @@ function navigate(screen, push=true) {
   persist(); render(); window.scrollTo(0,0);
 }
 function feed() {
-  const ls=filtered(),f=state.filters,hasMarket=all().some(l=>C.matches(l,{market:f.market})),sub=currentSubscription(),budget=f.max?`До ${money(f.max)} ${sym(f.currency)}`:'Бюджет';
-  return `${marketSwitch()}<div class="filters" aria-label="Фильтры поиска"><button class="filter-chip" data-action="budget"><span>${esc(budget)}</span>${icon('down')}</button><button class="filter-chip" data-action="district"><span>${esc(f.district||(f.city==='Ереван'?'Район':f.city||'Город'))}</span>${icon('down')}</button><button class="filter-chip" data-action="rooms"><span>${esc(housingFilterLabel(f))}</span>${icon('down')}</button><button class="filter-chip conditions-chip" data-action="conditions-filter" aria-label="Условия" title="Условия">${icon('sliders')}</button></div>
+  const ls=filtered(),f=state.filters,marketCount=all().filter(l=>C.matches(l,{market:f.market})).length,sub=currentSubscription(),budget=f.max?`До ${money(f.max)} ${sym(f.currency)}`:'Бюджет';
+  return `${marketSwitch()}<div class="filters" aria-label="Фильтры поиска"><button class="filter-chip ${f.max||f.currency==='USD'||f.period==='day'?'selected':''}" data-action="budget"><span>${esc(budget)}</span>${icon('down')}</button><button class="filter-chip ${f.district||f.city&&f.city!=='Ереван'?'selected':''}" data-action="district" title="${esc(f.district||f.city||'Все города')}"><span>${esc(f.district||(f.city==='Ереван'?'Район':f.city||'Город'))}</span>${icon('down')}</button><button class="filter-chip ${f.rooms!==''||f.kind?'selected':''}" data-action="rooms"><span>${esc(housingFilterLabel(f))}</span>${icon('down')}</button><button class="filter-chip conditions-chip ${f.pets||f.contract||f.residence_registration||f.owner||f.verified?'selected':''}" data-action="conditions-filter" aria-label="Условия" title="Условия">${icon('sliders')}</button></div>
   <div class="results-heading"><button class="sort-button" data-action="sort">${ls.length} ${plural(ls.length,'вариант','варианта','вариантов')} · ${state.sort==='price'?'дешевле':'новые'} ${icon('down')}</button><div class="catalog-tools"><button class="follow-button ${sub?.active?'on':''}" data-action="follow" aria-label="${sub?.active?'Уведомления включены':'Уведомлять о новых вариантах'}" title="Уведомлять" aria-pressed="${!!sub?.active}">${icon(sub?.active?'check':'bell')}</button>${layoutSwitch()}</div></div>
-  <div class="list ${state.layout==='grid'?'compact-grid':'album-feed'}">${ls.map(card).join('')||(hasMarket?empty('Нет подходящих вариантов','Попробуйте другой город или бюджет.','Сбросить фильтры','reset-filters'):empty('Пока нет объявлений',f.market==='paid'?'Добавьте предложение с комиссией или подпишитесь на поиск.':'Добавьте жильё или подпишитесь на поиск.','Сдать жильё','nav','add'))}</div>`;
+  <div class="list ${state.layout==='grid'?'compact-grid':'album-feed'}">${ls.map(card).join('')||(marketCount?empty('Нет подходящих вариантов','Фильтры: '+filterSummary(f)+'.',`Показать все ${marketCount}`,'reset-filters'):empty('Пока нет объявлений',f.market==='paid'?'Добавьте предложение с комиссией или подпишитесь на поиск.':'Добавьте жильё или подпишитесь на поиск.','Сдать жильё','nav','add'))}</div>`;
 }
 function plural(n,a,b,c) { return n%10===1&&n%100!==11?a:n%10>=2&&n%10<=4&&(n%100<12||n%100>14)?b:c; }
 function viewsHTML(l) {
@@ -1016,7 +1024,7 @@ async function recordView(l) {
 }
 function marketSwitch(post=false) {
   const market=post?state.postMarket:state.filters.market;
-  return `<div class="market-switch" aria-label="${post?'Условия размещения':'Раздел каталога'}">${[['free','Без комиссии'],['paid','С комиссией · агенты']].map(([key,label])=>`<button data-action="${post?'post-market':'market'}" data-id="${key}" aria-pressed="${market===key}">${label}</button>`).join('')}</div>`;
+  return `<div class="market-switch" aria-label="${post?'Условия размещения':'Раздел каталога'}">${[['free','Без комиссии'],['paid','С комиссией · агенты']].map(([key,label])=>`<button data-action="${post?'post-market':'market'}" data-id="${key}" aria-pressed="${market===key}">${label}${post?'':` <span class="market-count">${all().filter(l=>C.matches(l,{market:key})).length}</span>`}</button>`).join('')}</div>`;
 }
 function layoutSwitch() {
   return `<div class="layout-switch" aria-label="Вид каталога">${[['list','Лента'],['grid','Сетка']].map(([key,label])=>`<button data-action="layout" data-id="${key}" aria-label="${label}" title="${label}" aria-pressed="${state.layout===key}">${icon(key)}</button>`).join('')}</div>`;
@@ -1132,7 +1140,7 @@ function selectOptions(options,current) {
   return options.map(([v,t])=>`<option value="${esc(v)}" ${v===current?'selected':''}>${esc(t)}</option>`).join('');
 }
 function budgetSheet(edit=false) {
-  const p=edit?state.draft.prices[0]:{amount:state.filters.max,currency:state.filters.currency,period:state.filters.period};
+  const p=edit?state.draft.prices[0]:{amount:state.filters.max,currency:state.filters.currency||'AMD',period:state.filters.period||'month'};
   const presets=p.currency==='USD'?[600,900,1200]:p.period==='day'?[15000,25000,35000]:[250000,350000,450000];
   const body=`<form id="${edit?'edit-price-form':'budget-form'}" class="stack"><div class="field-row"><div><label for="price-period">Цена за</label><select name="period" id="price-period">${selectOptions([['month','Месяц'],['day','Сутки']],p.period)}</select></div><div><label for="price-currency">Валюта</label><select name="currency" id="price-currency">${selectOptions([['AMD','Драмы · ֏'],['USD','Доллары · $']],p.currency)}</select></div></div><div><label for="budget-input">${edit?'Стоимость':'Максимальная цена'}</label><input class="price-input" id="budget-input" name="amount" type="text" inputmode="numeric" pattern="[0-9 ]*" maxlength="11" placeholder="${edit?'Например, 300 000':'Без ограничения'}" value="${esc(p.amount||'')}" ${edit?'required':''}></div>${edit?'':`<div class="choices" id="budget-presets">${presets.map(n=>`<button class="choice" type="button" data-action="preset" data-id="${n}">${money(n)}</button>`).join('')}<button class="choice" type="button" data-action="preset" data-id="">Любая</button></div>`}</form>`;
   showSheet(edit?'Цена аренды':'Бюджет',body,`<button class="button" form="${edit?'edit-price-form':'budget-form'}" type="submit">${edit?'Готово':'Показать варианты'}</button>`,edit?'edit-price':'budget');
@@ -1186,7 +1194,7 @@ async function detail(id,cached=false) {
   const l=item(id); if (!l) return toast('Объявление больше недоступно.');
   const media=l.photos?.length?albumHTML(l):'';
   const description=l.description||'';
-  showSheet(housing(l),`${media}<div class="card-metrics">${ageHTML(l)}${viewsHTML(l)}</div><div class="price">${priceHTML(l)}</div><p class="meta">${esc([l.city,l.address,l.district].filter(Boolean).join(' · '))}</p>${l.area||l.floor?`<p class="meta">${[l.area?esc(l.area)+' м²':'',l.floor?'Этаж '+esc(l.floor):''].filter(Boolean).join(' · ')}</p>`:''}${commissionHTML(l)}${travelHTML(l)}${conditionsHTML(l)}${publicationLinksHTML(l)}${trustHTML(l)}${description?`<details open><summary>Описание${icon('down')}</summary><div class="detail-description details-text">${esc(description)}</div></details>`:''}${displayStatus(l)!=='active'?`<div class="error-note">${esc(niceStatus(l))}. Объявление скрыто из ленты.</div>`:''}${exactDate(l)?`<p class="note">Опубликовано ${esc(exactDate(l))}</p>`:''}${adminAgentButton(l)}${state.user?.is_admin?`<button class="button secondary danger" data-action="ban" data-id="${esc(l.id)}">Заблокировать с причиной</button>`:''}<button class="text-button" data-action="report" data-id="${esc(l.id)}">Пожаловаться</button>`,
+  showSheet(housing(l),`${media}<div class="card-metrics">${ageHTML(l)}${viewsHTML(l)}</div><div class="price">${priceHTML(l)}</div><p class="meta">${esc([l.city,l.address,l.district].filter(Boolean).join(' · '))}</p>${l.area||l.floor?`<p class="meta">${[l.area?esc(l.area)+' м²':'',l.floor?'Этаж '+esc(l.floor):''].filter(Boolean).join(' · ')}</p>`:''}${commissionHTML(l)}${travelHTML(l)}${conditionsHTML(l)}${sourceHistoryHTML(l)}${publicationLinksHTML(l)}${trustHTML(l)}${description?`<details open><summary>Описание${icon('down')}</summary><div class="detail-description details-text">${esc(description)}</div></details>`:''}${displayStatus(l)!=='active'?`<div class="error-note">${esc(niceStatus(l))}. Объявление скрыто из ленты.</div>`:''}${exactDate(l)?`<p class="note">Опубликовано ${esc(exactDate(l))}</p>`:''}${adminAgentButton(l)}${state.user?.is_admin?`<button class="button secondary danger" data-action="ban" data-id="${esc(l.id)}">Заблокировать с причиной</button>`:''}<button class="text-button" data-action="report" data-id="${esc(l.id)}">Пожаловаться</button>`,
     `<button class="button" data-action="contact" data-id="${esc(l.id)}" ${displayStatus(l)!=='active'?'disabled':''}>${icon('send')}Связаться</button>`,'detail',id,'detail-sheet');
   void recordView(l);
 }
@@ -1194,11 +1202,34 @@ function mineSheet() {
   showSheet('Мои объявления',state.own.map(l=>`<article class="my-row" data-mine-id="${esc(l.id)}"><h3>${esc(l.city)} · ${esc(l.address)}</h3><div class="card-metrics">${ageHTML(l)}${viewsHTML(l)}</div><p>${priceHTML(l,{})}</p><p class="listing-status status-${esc(l.status)}">${esc(niceStatus(l))}</p>${l.ban_reason||l.review_reason?`<div class="moderation-reason"><strong>${l.status==='banned'?'Причина блокировки':'Комментарий модератора'}</strong><p>${esc(l.ban_reason||l.review_reason)}</p></div>`:''}${['active','rented'].includes(l.status)?`<button class="text-button" data-action="detail" data-id="${esc(l.id)}">Открыть карточку</button><button class="button secondary" data-action="status" data-id="${esc(l.id)}" data-status="${l.status==='active'?'rented':'active'}">${l.status==='active'?'Отметить «Сдано»':'Снова актуально'}</button>`:''}${['active','review'].includes(l.status)?`<button class="text-button" data-action="verify" data-id="${esc(l.id)}">${l.document_status==='pending'?'Документ на проверке':'Подтвердить собственность'}</button>`:''}</article>`).join('')||'<p class="note">Пока нет объявлений. Нажмите «Сдать», чтобы добавить жильё.</p>','','mine');
 }
 async function refreshAdmin() {
+  if(state.adminTab==='import'){[state.sourceStatus,state.sourcePosts]=await Promise.all([api('/api/admin/source'),api('/api/admin/source/posts')]);return;}
   state.queue=await api(state.adminTab==='reports'?'/api/admin/reports':state.adminTab==='review'?'/api/admin/queue':'/api/admin/listings?status='+state.adminTab);
 }
 function admin() {
   if (!state.user?.is_admin) return empty('Доступ только администратору','','К ленте');
-  return `<h1>Объявления</h1><div class="admin-tabs">${[['review','Проверка'],['reports','Жалобы'],['all','Все'],['banned','Баны']].map(([k,t])=>`<button class="choice ${state.adminTab===k?'active':''}" data-action="admin-tab" data-id="${k}" aria-pressed="${state.adminTab===k}">${t}</button>`).join('')}</div><div class="stack">${state.adminTab==='reports'?reportsHTML():state.queue.map(l=>`<article class="my-row" data-admin-id="${esc(l.id)}"><h3>${esc(l.city)} · ${esc(l.address)}</h3><p>${priceHTML(l,{})}</p><p class="listing-status status-${esc(l.status)}">${esc(niceStatus(l))}</p>${l.ban_reason||l.review_reason?`<div class="moderation-reason">${esc(l.ban_reason||l.review_reason)}</div>`:''}${l.description?`<details><summary>Описание ${icon('down')}</summary><p class="details-text">${esc(l.description)}</p></details>`:''}${l.document_status==='pending'?`<button class="button secondary" data-action="review-doc" data-id="${esc(l.id)}">Проверить документ</button>`:''}${adminAgentButton(l)}<div class="moderation-actions">${l.status==='banned'?`<button class="button secondary" data-action="unban" data-id="${esc(l.id)}">Снять блокировку</button>`:`${['review','rejected'].includes(l.status)?`<button class="button" data-action="approve" data-id="${esc(l.id)}">Одобрить</button>`:''}<button class="button secondary danger" data-action="ban" data-id="${esc(l.id)}">Заблокировать с причиной</button>`}</div></article>`).join('')||'<p class="note">Объявлений в этом разделе нет.</p>'}</div>`;
+  return `<h1>Объявления</h1><div class="admin-tabs">${[['review','Проверка'],['reports','Жалобы'],['all','Все'],['banned','Баны'],...(state.sourceEnabled?[['import','Импорт']]:[])].map(([k,t])=>`<button class="choice ${state.adminTab===k?'active':''}" data-action="admin-tab" data-id="${k}" aria-pressed="${state.adminTab===k}">${t}</button>`).join('')}</div><div class="stack">${state.adminTab==='import'?sourceAdminHTML():state.adminTab==='reports'?reportsHTML():state.queue.map(l=>`<article class="my-row" data-admin-id="${esc(l.id)}"><h3>${esc(l.city)} · ${esc(l.address)}</h3><p>${priceHTML(l,{})}</p><p class="listing-status status-${esc(l.status)}">${esc(niceStatus(l))}</p>${l.ban_reason||l.review_reason?`<div class="moderation-reason">${esc(l.ban_reason||l.review_reason)}</div>`:''}${l.description?`<details><summary>Описание ${icon('down')}</summary><p class="details-text">${esc(l.description)}</p></details>`:''}${l.document_status==='pending'?`<button class="button secondary" data-action="review-doc" data-id="${esc(l.id)}">Проверить документ</button>`:''}${adminAgentButton(l)}<div class="moderation-actions">${l.status==='banned'?`<button class="button secondary" data-action="unban" data-id="${esc(l.id)}">Снять блокировку</button>`:`${['review','rejected'].includes(l.status)?`<button class="button" data-action="approve" data-id="${esc(l.id)}">Одобрить</button>`:''}<button class="button secondary danger" data-action="ban" data-id="${esc(l.id)}">Заблокировать с причиной</button>`}</div></article>`).join('')||'<p class="note">Объявлений в этом разделе нет.</p>'}</div>`;
+}
+function sourceHistoryHTML(l){
+  if(!l.history?.length)return '';
+  const value=(k,v)=>k==='prices'?(v||[]).map(p=>`${money(p.amount)}${p.amount_max?'–'+money(p.amount_max):''} ${p.currency}/${p.period==='day'?'сут':'мес'}`).join('; '):String(v||'—');
+  return `<details class="listing-history"><summary>Изменения цены и адреса ${icon('down')}</summary>${l.history.slice(0,3).map(change=>`<div class="history-change"><small>${esc(new Date(change.at).toLocaleDateString('ru-RU'))}</small>${Object.entries(change.fields).map(([k,v])=>`<p>${esc({address:'Адрес',city:'Город',prices:'Цена'}[k]||k)}: <s>${esc(value(k,v.before))}</s> → ${esc(value(k,v.after))}</p>`).join('')}</div>`).join('')}</details>`;
+}
+function sourceAdminHTML(){
+  const status=state.sourceStatus||{},names={disabled:'Отключено',configuration_required:'Укажите источник в настройках сервера',credentials_required:'Нужны ключи Telegram API',login_required:'Войдите в Telegram через telegram_login.py',membership_required:'Аккаунт должен состоять в канале',user_account_required:'Нужен пользовательский аккаунт',connecting:'Подключение',syncing:'Загрузка последних 10 дней',connected:'Соединение с Telegram установлено',rate_limited:'Пауза по ограничению Telegram',disconnected:'Восстановление соединения',reader_busy:'Сессия занята другим процессом'};
+  return `<p class="note">${esc(names[status.connection?.state]||'Подключение')}${status.history_checked?` · Сверено ${esc(new Date(status.history_checked*1000).toLocaleTimeString('ru-RU'))}`:''}</p>${status.history_complete&&!status.activated&&status.staged?`<div class="stack"><p>Готово ${status.staged} объявлений. Они заменят прежний импортированный каталог этого канала.</p><button class="button" data-action="activate-source">Использовать каталог Telegram</button></div>`:''}<div class="stack">${(state.sourcePosts||[]).map(p=>`<button class="my-row report-row" data-action="source-post" data-id="${esc(p.key)}"><strong>${p.market==='paid'?'С комиссией':'Без комиссии'}</strong><span>${esc(p.text.slice(0,200)||'Пост с фотографиями')}</span><small>${esc(p.note)} · ${p.photo_count} фото</small></button>`).join('')||'<p class="note">Постов для проверки нет.</p>'}</div>`;
+}
+async function sourcePostSheet(key){
+  state.sourcePosts=await api('/api/admin/source/posts');
+  const post=state.sourcePosts.find(p=>p.key===key);if(!post)return toast('Список обновился. Откройте пост из очереди импорта.');
+  state.sourcePost=post;const d=post.fields||{},price=d.prices?.[0]||{},paid=post.market==='paid';
+  showSheet('Пост из Telegram',`<div class="stack"><div class="details-text source-text">${esc(post.text)}</div><a class="button secondary" href="${esc(post.source_url)}" target="_blank" rel="noopener noreferrer">Открыть оригинал · ${post.photo_count} фото</a><form id="source-form" class="stack"><div><label for="source-city">Город</label><input id="source-city" name="city" value="${esc(d.city||'')}" required maxlength="80"></div><div><label for="source-address">Адрес</label><input id="source-address" name="address" value="${esc(d.address||'')}" required minlength="3" maxlength="180"></div><div><label for="source-district">Район Еревана</label><select id="source-district" name="district">${selectOptions([['','Уточняется'],...C.DISTRICTS.map(x=>[x.name,x.name])],d.district||'')}</select></div><div class="field-grid"><div><label for="source-kind">Жильё</label><select id="source-kind" name="kind" required>${selectOptions([['','Выберите'],['apartment','Квартира'],['house','Дом'],['room','Комната'],['aparthotel','Апарт-отель']],d.kind||'')}</select></div><div><label for="source-rooms">Комнаты</label><input id="source-rooms" name="rooms" type="number" min="0" max="20" value="${d.rooms??''}"></div></div><div><label for="source-price">Цена</label><input id="source-price" name="amount" type="number" min="1" max="1000000000" required value="${price.amount||''}"></div><div class="field-grid"><select name="currency" aria-label="Валюта" required>${selectOptions([['','Валюта'],['AMD','֏'],['USD','$']],price.currency||'')}</select><select name="period" aria-label="Период" required>${selectOptions([['','Период'],['month','В месяц'],['day','В сутки']],price.period||'')}</select></div>${paid?`<div><label for="source-fee">Комиссия</label><input id="source-fee" name="commission" type="number" min="1" max="1000000000" required value="${d.commission||''}"></div><select name="fee_unit" aria-label="Расчёт комиссии">${selectOptions([['percent_month','% от месяца'],['percent_day','% от суток'],['AMD','Фиксированно ֏'],['USD','Фиксированно $']],d.commission_type==='fixed'?d.commission_currency:d.commission_basis==='day'?'percent_day':'percent_month')}</select>`:`<select name="role" aria-label="Кто разместил">${selectOptions([['unknown','Автор не указал роль'],['owner','Собственник'],['tenant','Съезжающий жилец'],['agent','Агент']],d.role||'unknown')}</select>`}</form><button class="text-button danger" data-action="ignore-source" data-id="${esc(key)}">Пропустить пост</button></div>`,`<button class="button" form="source-form" type="submit">Сохранить объявление</button>`,'source-post',key);
+}
+async function submitSource(form,x){
+  const post=state.sourcePost,button=$('button[form=source-form]'),fixed=['AMD','USD'].includes(x.fee_unit);button.disabled=true;
+  try{
+    const fields={...post.fields,city:x.city.trim(),address:x.address.trim(),district:x.city.trim()==='Ереван'?x.district:'',kind:x.kind,rooms:x.rooms===''?null:Number(x.rooms),prices:[{amount:Number(x.amount),currency:x.currency,period:x.period}],role:post.market==='paid'?'agent':x.role,commission:post.market==='paid'?Number(x.commission):0,commission_type:fixed?'fixed':'percent',commission_currency:fixed?x.fee_unit:'AMD',commission_basis:x.fee_unit==='percent_day'?'day':'month'};
+    await api('/api/admin/source/posts/'+encodeURIComponent(post.key),'POST',{revision:post.revision,fields});closeSheet();await Promise.all([refresh(),refreshAdmin()]);render();toast('Объявление сохранено.');
+  }finally{if(button.isConnected)button.disabled=false;}
 }
 function reportStatus(r){return r.status==='draft'?'Черновик':r.status==='pending'?'Ожидает решения':r.outcome==='ban'?'Объявление заблокировано':'Жалоба отклонена';}
 function reportsHTML(){return state.queue.map(r=>`<button class="my-row report-row" data-action="open-report" data-id="${esc(r.id)}"><strong>${esc(r.listing.address)}</strong><span>${esc(r.reason||'Причина не указана')}</span><small>${esc(r.reporter.name)} · ${esc(r.reporter.username?'@'+r.reporter.username:'ID '+r.reporter.id)}</small><span>${esc(reportStatus(r))}</span></button>`).join('')||'<p class="note">Жалоб пока нет.</p>';}
@@ -1449,10 +1480,14 @@ async function action(a,id,el) {
   }
   if (a==='sort') return showSheet('Порядок объявлений',`<div class="choice-list">${[['new','Сначала новые'],['price','Сначала дешевле']].map(([v,t])=>`<button class="choice-row ${state.sort===v?'active':''}" data-action="select-sort" data-id="${v}">${t}${state.sort===v?icon('check'):''}</button>`).join('')}</div>`,'','sort');
   if (a==='select-sort') { state.sort=id; closeSheet(); persist(); render(); return; }
-  if (a==='reset-filters') { state.filters={...baseFilters(),market:state.filters.market}; persist(); render(); return; }
+  if (a==='reset-filters') { state.filters={...baseFilters(),market:state.filters.market,city:'',currency:'',period:''};state.sort='new'; persist(); render(); return; }
   if (a==='detail') return detail(id);
   if (a==='phone-listings') return phoneListings(id,el);
   if (a==='ban') return banSheet(id);
+  if(a==='source-post')return sourcePostSheet(id);
+  if(a==='ignore-source'||a==='activate-source'){
+    el.disabled=true;try{if(a==='activate-source')await api('/api/admin/source/activate','POST',{});else await api('/api/admin/source/posts/'+encodeURIComponent(id),'POST',{revision:state.sourcePost.revision,ignore:true});closeSheet();await refresh();await refreshAdmin();render();}finally{if(el.isConnected)el.disabled=false;}return;
+  }
   if (a==='admin-tab'){state.adminTab=id;await refreshAdmin();render();return;}
   if (a==='unban'){el.disabled=true;try{await api('/api/admin/'+id+'/unban','POST',{});await refreshAdmin();await refresh();render();toast('Блокировка снята.');}finally{if(el.isConnected)el.disabled=false;}return;}
   if (a==='author-listings') return authorListings(id,el);
@@ -1520,6 +1555,7 @@ document.addEventListener('change',e=>{
 document.addEventListener('invalid',e=>{for(let el=e.target.parentElement;el;el=el.parentElement)if(el.tagName==='DETAILS')el.open=true;},true);
 document.addEventListener('submit',e=>{
   e.preventDefault(); const x=Object.fromEntries(new FormData(e.target));
+  if(e.target.id==='source-form'){submitSource(e.target,x).catch(err=>toast(err.message));return;}
   if(['report-form','report-decision'].includes(e.target.id)){submitReport(e.target,x).catch(err=>toast(err.message));return;}
   if(['step-address-form','step-price-form'].includes(e.target.id)){prepareListing().catch(err=>toast(err.message));return;}
   if(['verification-form','verification-decision','contact-form','filter-conditions','ban-form','commission-form','agent-profile-form'].includes(e.target.id)){handleExtraForm(e.target,x).catch(err=>toast(err.message));return;}
@@ -1605,11 +1641,27 @@ async function startRoute() {
   }
   if(p==='admin' && state.user?.is_admin) { state.queue=await api('/api/admin/queue'); navigate('admin',false); }
 }
+let catalogEvents=null,catalogRevision=null,catalogTimer=null;
+function connectCatalogEvents(){
+  if(!state.sourceEnabled||document.hidden){catalogEvents?.close();catalogEvents=null;return;}
+  if(catalogEvents)return;
+  catalogEvents=new EventSource('/api/catalog-events');
+  catalogEvents.onmessage=event=>{
+    const revision=JSON.parse(event.data).revision;
+    if(catalogRevision!==null&&revision!==catalogRevision){
+      clearTimeout(catalogTimer);
+      const refreshSoon=()=>{if(refreshPending){catalogTimer=setTimeout(refreshSoon,300);return;}void refreshVisible();};
+      catalogTimer=setTimeout(refreshSoon,150);
+    }
+    catalogRevision=revision;
+  };
+}
+document.addEventListener('visibilitychange',connectCatalogEvents);
 let connecting=false;
 async function connect() {
   if(connecting)return;connecting=true;
   try {
-    const config=await api('/api/config');state.bot=config.bot_username;
+    const config=await api('/api/config');state.bot=config.bot_username;state.sourceEnabled=!!config.source_enabled;connectCatalogEvents();
     state.channelConfigured=!!config.channel_configured;state.paidChannelConfigured=!!config.paid_channel_configured;
     if(tg?.initData)state.user=await api('/api/me');
     await refresh();render();await startRoute();
@@ -1629,7 +1681,15 @@ async function refreshVisible() {
   if(document.hidden || !state.booted || refreshPending) return;
   refreshPending=true;
   try {
+    const openId=photoGallery?.rentListingId||(sheetKind==='detail'?sheetArg:''),before=openId?item(openId):null;
     await refresh();state.error='';
+    if(before?.source_revision){
+      const after=state.remote.find(l=>l.id===openId);
+      if(!after||after.source_revision!==before.source_revision){
+        const show=()=>{if(after)void detail(openId);else {closeSheet();toast('Объявление снято с публикации.');}};
+        if(photoGallery){galleryAfter=show;closeGallery();}else show();
+      }
+    }
     if(state.user&&state.telegramPhotos&&['add','review'].includes(state.screen)){
       const before=state.photos.length;await syncDraft();
       if(state.photos.length!==before&&$('#photo-previews'))$('#photo-previews').innerHTML=photoPreviews();
@@ -1806,7 +1866,7 @@ async function openGallery(id,index=0,trigger=null) {
     const originalOverflow=document.body.style.overflow,verticalSwipes=tg?.isVerticalSwipesEnabled!==false;
     let footer=null;
     const viewer=new PhotoSwipe({dataSource:data.map((p,i)=>({...p,alt:`Фото ${i+1}: ${l.address}`})),index:Math.max(0,Math.min(index,photos.length-1)),loop:false,preload:[1,1],mainClass:'rent-gallery',bgOpacity:1,showHideAnimationType:matchMedia('(prefers-reduced-motion: reduce)').matches?'none':'fade',showAnimationDuration:160,hideAnimationDuration:160,closeTitle:'Закрыть фотографии',zoomTitle:'Увеличить',arrowPrevTitle:'Предыдущее фото',arrowNextTitle:'Следующее фото',errorMsg:'Фото не загрузилось. Перейдите к следующему снимку.',paddingFn:()=>({top:Math.max(60,document.querySelector('.pswp__top-bar')?.offsetHeight||60),bottom:footer?.offsetHeight||180,left:0,right:0})});
-    photoGallery=viewer;
+    photoGallery=viewer;viewer.rentListingId=id;
     viewer.on('uiRegister',()=>viewer.ui.registerElement({name:'rental-footer',order:9,appendTo:'root',html:`<div class="gallery-thumbs">${photos.map((p,i)=>`<button data-gallery-index="${i}" aria-label="Фото ${i+1}"><img src="${esc(thumbPhoto(p))}" alt="" loading="lazy"></button>`).join('')}</div><div class="gallery-summary"><strong>${priceHTML(l)}</strong><span>${esc(l.city+' · '+l.address)}</span><span class="gallery-fee">${esc(commissionLabel(l))}</span></div><div class="gallery-actions"><button class="button secondary" data-gallery-action="details">Условия</button><button class="button" data-gallery-action="contact" >Связаться</button></div>`,onInit:el=>{
       footer=el;
       el.addEventListener('click',e=>{
