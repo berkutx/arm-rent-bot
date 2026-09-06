@@ -24,6 +24,8 @@ PUBLISH_CHAT_ID/PUBLISH_THREAD_ID — публикации без комисси
 
 Посты проверяются в «Админ → Импорт». Первое переключение заменяет прежний импорт этого канала готовыми карточками; самостоятельные объявления и настройки сохраняются. Импорт не пишет в канал.
 
+Карта Еревана — Leaflet (BSD-2-Clause), тайлы OpenStreetMap напрямую в браузере. Nominatim вызывается только по нажатию: один запрос в секунду на приложение, кэш на 30 дней, без фонового геокодинга. Провайдер меняется через GEOCODER_URL; пустое значение отключает карту. [Правила Nominatim](https://operations.osmfoundation.org/policies/nominatim/).
+
 ## Изменения и обслуживание
 
 Редактировать web/app.js, core.js, style.css и index.template.html; затем `python build.py`.
@@ -36,6 +38,7 @@ python tests/mobile_smoke.py
 python tests/mobile_moderation.py
 python tests/mobile_gallery.py
 python tests/mobile_source.py
+python tests/mobile_maps.py
 ```
 
 Для браузерных тестов установить Chromium: `python -m playwright install chromium` или задать CHROMIUM_PATH.

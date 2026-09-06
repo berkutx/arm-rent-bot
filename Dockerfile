@@ -10,6 +10,7 @@ RUN pip install --no-cache-dir --no-compile -r requirements.txt \
 COPY server.py source_sync.py ./
 COPY web/index.html web/districts.json ./web/
 COPY web/vendor/*LICENSE ./licenses/
+COPY web/vendor/leaflet-1.9.4.* ./web/vendor/
 COPY scripts/backup.py scripts/telegram_login.py ./scripts/
 COPY deploy/docker-entrypoint.sh /entrypoint.sh
 USER 10001:10001

@@ -355,3 +355,16 @@ details .details-text { padding:0 15px 17px; }
 .source-text { max-height:280px; overflow:auto; }
 
 #source-form .field-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+
+.listing-heading,.map-address {display:flex;align-items:flex-start;gap:4px}
+.listing-heading .listing-main,.map-address .meta {flex:1;min-width:0}
+.map-button {color:var(--accent);flex:none}
+.map-sheet .sheet-body {display:grid;gap:12px}
+#rental-map {height:clamp(240px,48dvh,420px);width:100%;border-radius:12px;color:#1c2927;isolation:isolate}
+#rental-map[hidden] {display:none}
+#rental-map .leaflet-control-attribution {font-size:11px;background:#fffe}
+#rental-map .leaflet-control-attribution a {color:#175583}
+.map-credit {font-size:11px;color:var(--muted)}
+.compact-grid .map-button {width:32px}
+
+#rental-map .leaflet-overlay-pane > svg {width:auto;height:auto}

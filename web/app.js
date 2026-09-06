@@ -2,6 +2,7 @@
 const $ = s => document.querySelector(s);
 const C = window.RentCore;
 const paths = {
+  map:'M21 10c0 7-9 12-9 12S3 17 3 10a9 9 0 1 1 18 0M15 10a3 3 0 1 1-6 0 3 3 0 0 1 6 0',
   list:'M4 3h16v7H4zM4 14h16v7H4z', grid:'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z',
   sliders:'M4 7h7M15 7h5M4 17h2M10 17h10M11 4v6M6 14v6',
   info:'M12 17v-5M12 8h.01M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0',
@@ -160,7 +161,7 @@ function card(l) {
   const hint=l.residence_registration==='yes'?'Регистрация возможна':l.residence_registration==='ask'?'Регистрация — по условиям':l.pets==='yes'?'Можно с питомцем':'';
   const verified=['owner_verified','representative_verified'].includes(l.document_status);
   return `<article class="listing" data-listing="${esc(l.id)}"><div class="listing-body">
-    <button class="listing-main" data-action="detail" data-id="${esc(l.id)}"><div class="price">${priceHTML(l)}</div><div class="listing-title">${esc(housing(l))}${l.area?' · '+esc(l.area)+' м²':''}</div><div class="listing-address">${esc([l.city,l.address].filter(Boolean).join(' · '))}</div></button>
+    <div class="listing-heading"><button class="listing-main" data-action="detail" data-id="${esc(l.id)}"><div class="price">${priceHTML(l)}</div><div class="listing-title">${esc(housing(l))}${l.area?' · '+esc(l.area)+' м²':''}</div><div class="listing-address">${esc([l.city,l.address].filter(Boolean).join(' · '))}</div></button>${mapButton(l)}</div>
     ${commissionHTML(l)}${albumHTML(l,state.layout==='grid')}
     <div class="card-top"><div class="card-metrics">${ageHTML(l)}${viewsHTML(l)}</div>${verified?'<span class="trust-badge">Сверен по документам</span>':l.role==='owner'?'<span class="claim-badge">От собственника*</span>':l.role==='agent'?'<span class="claim-badge">Агент</span>':''}</div>
     <div class="card-extra">${travelHTML(l)}${availabilityHTML(l)}${hint?`<p class="availability-note">${esc(hint)}</p>`:''}</div>
@@ -215,7 +216,7 @@ function review() {
 let proofURLs=[];
 function clearProofURLs(){for(const url of proofURLs)URL.revokeObjectURL(url);proofURLs=[];}
 function showSheet(title, body, footer='', kind='', arg='', className='', push=true) {
-  clearProofURLs();
+  clearProofURLs();destroyMap();
   const replacing=!!sheetKind;
   if (!sheetKind) restoreFocus=document.activeElement;
   sheetKind=kind||'generic'; sheetArg=arg;
@@ -225,7 +226,7 @@ function showSheet(title, body, footer='', kind='', arg='', className='', push=t
   if (push && !replacing) history.pushState({...history.state,rent:true,screen:state.screen,step:state.formStep,sheet:true},'');
 }
 function clearSheet(focus=true) {
-  clearProofURLs();
+  clearProofURLs();destroyMap();
   $('#modal-root').innerHTML=''; sheetKind=''; sheetArg='';
   $('#app').inert=false; document.body.style.overflow=''; updateBackButton();
   if (focus && restoreFocus?.isConnected) restoreFocus.focus({preventScroll:true});
@@ -307,7 +308,7 @@ async function detail(id,cached=false) {
   const l=item(id); if (!l) return toast('Объявление больше недоступно.');
   const media=l.photos?.length?albumHTML(l):'';
   const description=l.description||'';
-  showSheet(housing(l),`${media}<div class="card-metrics">${ageHTML(l)}${viewsHTML(l)}</div><div class="price">${priceHTML(l)}</div><p class="meta">${esc([l.city,l.address,l.district].filter(Boolean).join(' · '))}</p>${l.area||l.floor?`<p class="meta">${[l.area?esc(l.area)+' м²':'',l.floor?'Этаж '+esc(l.floor):''].filter(Boolean).join(' · ')}</p>`:''}${commissionHTML(l)}${travelHTML(l)}${conditionsHTML(l)}${sourceHistoryHTML(l)}${publicationLinksHTML(l)}${trustHTML(l)}${description?`<details open><summary>Описание${icon('down')}</summary><div class="detail-description details-text">${esc(description)}</div></details>`:''}${displayStatus(l)!=='active'?`<div class="error-note">${esc(niceStatus(l))}. Объявление скрыто из ленты.</div>`:''}${exactDate(l)?`<p class="note">Опубликовано ${esc(exactDate(l))}</p>`:''}${adminAgentButton(l)}${state.user?.is_admin?`<button class="button secondary danger" data-action="ban" data-id="${esc(l.id)}">Заблокировать с причиной</button>`:''}<button class="text-button" data-action="report" data-id="${esc(l.id)}">Пожаловаться</button>`,
+  showSheet(housing(l),`${media}<div class="card-metrics">${ageHTML(l)}${viewsHTML(l)}</div><div class="price">${priceHTML(l)}</div><div class="map-address"><p class="meta">${esc([l.city,l.address,l.district].filter(Boolean).join(' · '))}</p>${mapButton(l)}</div>${l.area||l.floor?`<p class="meta">${[l.area?esc(l.area)+' м²':'',l.floor?'Этаж '+esc(l.floor):''].filter(Boolean).join(' · ')}</p>`:''}${commissionHTML(l)}${travelHTML(l)}${conditionsHTML(l)}${sourceHistoryHTML(l)}${publicationLinksHTML(l)}${trustHTML(l)}${description?`<details open><summary>Описание${icon('down')}</summary><div class="detail-description details-text">${esc(description)}</div></details>`:''}${displayStatus(l)!=='active'?`<div class="error-note">${esc(niceStatus(l))}. Объявление скрыто из ленты.</div>`:''}${exactDate(l)?`<p class="note">Опубликовано ${esc(exactDate(l))}</p>`:''}${adminAgentButton(l)}${state.user?.is_admin?`<button class="button secondary danger" data-action="ban" data-id="${esc(l.id)}">Заблокировать с причиной</button>`:''}<button class="text-button" data-action="report" data-id="${esc(l.id)}">Пожаловаться</button>`,
     `<button class="button" data-action="contact" data-id="${esc(l.id)}" ${displayStatus(l)!=='active'?'disabled':''}>${icon('send')}Связаться</button>`,'detail',id,'detail-sheet');
   void recordView(l);
 }
@@ -597,6 +598,8 @@ async function action(a,id,el) {
   if (a==='detail') return detail(id);
   if (a==='phone-listings') return phoneListings(id,el);
   if (a==='ban') return banSheet(id);
+  if(a==='map')return openMap(id);
+  if(a==='map-point')return drawMapPoint(Number(id));
   if(a==='source-post')return sourcePostSheet(id);
   if(a==='ignore-source'||a==='activate-source'){
     el.disabled=true;try{if(a==='activate-source')await api('/api/admin/source/activate','POST',{});else await api('/api/admin/source/posts/'+encodeURIComponent(id),'POST',{revision:state.sourcePost.revision,ignore:true});closeSheet();await refresh();await refreshAdmin();render();}finally{if(el.isConnected)el.disabled=false;}return;
@@ -774,7 +777,7 @@ let connecting=false;
 async function connect() {
   if(connecting)return;connecting=true;
   try {
-    const config=await api('/api/config');state.bot=config.bot_username;state.sourceEnabled=!!config.source_enabled;connectCatalogEvents();
+    const config=await api('/api/config');state.bot=config.bot_username;state.sourceEnabled=!!config.source_enabled;state.mapsEnabled=!!config.maps_enabled;connectCatalogEvents();
     state.channelConfigured=!!config.channel_configured;state.paidChannelConfigured=!!config.paid_channel_configured;
     if(tg?.initData)state.user=await api('/api/me');
     await refresh();render();await startRoute();
@@ -794,7 +797,7 @@ async function refreshVisible() {
   if(document.hidden || !state.booted || refreshPending) return;
   refreshPending=true;
   try {
-    const openId=photoGallery?.rentListingId||(sheetKind==='detail'?sheetArg:''),before=openId?item(openId):null;
+    const openId=photoGallery?.rentListingId||(['detail','map'].includes(sheetKind)?sheetArg:''),before=openId?item(openId):null;
     await refresh();state.error='';
     if(before?.source_revision){
       const after=state.remote.find(l=>l.id===openId);
@@ -1005,3 +1008,41 @@ document.addEventListener('error',e=>{
   if(img.dataset.fullSrc&&img.src!==new URL(img.dataset.fullSrc,location.href).href){img.src=img.dataset.fullSrc;delete img.dataset.fullSrc;return;}
   img.closest('.photo-tile').classList.add('photo-broken');
 },true);
+
+let leafletReady=null,rentalMap=null,mapGeneration=0,mapPoints=[],mapTiles='';
+function mapButton(l){return state.mapsEnabled&&l.city==='Ереван'?`<button class="icon-button map-button" data-action="map" data-id="${esc(l.id)}" aria-label="Адрес на карте" title="Адрес на карте">${icon('map')}</button>`:'';}
+function destroyMap(){mapGeneration++;if(rentalMap){rentalMap.remove();rentalMap=null;}mapPoints=[];}
+function loadLeaflet(){
+  if(!leafletReady)leafletReady=Promise.all(['css','js'].map(ext=>new Promise((resolve,reject)=>{
+    const el=document.createElement(ext==='css'?'link':'script');
+    if(ext==='css'){el.rel='stylesheet';el.href='/assets/leaflet-1.9.4.css';}else el.src='/assets/leaflet-1.9.4.js';
+    el.onload=resolve;el.onerror=()=>{el.remove();reject(new Error('Карта не загрузилась. Попробуйте ещё раз.'));};document.head.appendChild(el);
+  }))).catch(error=>{leafletReady=null;throw error;});
+  return leafletReady;
+}
+async function openMap(id){
+  const l=item(id);if(!l||l.city!=='Ереван')return;
+  showSheet('Адрес на карте',`<p>${esc(l.address)}</p><p class="note" id="map-status" role="status">Ищем адрес…</p><div id="map-choices" class="stack"></div><div id="rental-map" role="region" aria-label="Карта адреса" hidden></div><p class="map-credit">Геокодинг: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> · Nominatim</p>`,`<button class="button secondary" data-action="detail" data-id="${esc(id)}">К объявлению</button>`,'map',id,'map-sheet');
+  const generation=mapGeneration;
+  try{
+    const [result]=await Promise.all([api('/api/listings/'+encodeURIComponent(id)+'/map'),loadLeaflet()]);
+    if(generation!==mapGeneration)return;
+    mapPoints=result.points;mapTiles=result.tile_url;
+    if(!mapPoints.length){$('#map-status').textContent='Адрес не найден на карте. Уточните расположение у автора.';return;}
+    if(mapPoints.length>1){
+      $('#map-status').textContent='Найдено несколько мест. Выберите совпадающий адрес.';
+      $('#map-choices').innerHTML=mapPoints.map((point,i)=>`<button class="choice-row" data-action="map-point" data-id="${i}">${esc(point.label)}</button>`).join('');
+    }else drawMapPoint(0);
+  }catch(error){if(generation===mapGeneration)$('#map-status').textContent=error.message;}
+}
+function drawMapPoint(index){
+  const point=mapPoints[index];if(!point||sheetKind!=='map')return;
+  if(rentalMap)rentalMap.remove();
+  $('#map-choices').innerHTML='';$('#rental-map').hidden=false;
+  $('#map-status').textContent=point.precision==='building'?'Место по данным OpenStreetMap.':point.precision==='street'?'Показана улица, положение дома уточните у автора.':'Показан район поиска, положение дома уточните у автора.';
+  rentalMap=L.map('rental-map',{scrollWheelZoom:false}).setView([point.lat,point.lon],point.precision==='building'?17:15);
+  L.tileLayer(mapTiles,{maxZoom:19,updateWhenIdle:true,keepBuffer:1,referrerPolicy:'origin',attribution:'© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a>'}).addTo(rentalMap);
+  const marker=L.circleMarker([point.lat,point.lon],{radius:8,color:'#137d63',fillOpacity:point.precision==='building'?.9:0,dashArray:point.precision==='building'?null:'3 3'});
+  const label=document.createElement('span');label.textContent=point.label;marker.addTo(rentalMap).bindTooltip(label,{direction:'top'});
+  const map=rentalMap;requestAnimationFrame(()=>{if(rentalMap===map)map.invalidateSize();});
+}

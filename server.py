@@ -12,7 +12,7 @@ from source_sync import SourceStore,SourceCatalog,run_reader
 from cryptography.fernet import Fernet
 from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, RedirectResponse, FileResponse
 from pydantic import BaseModel, Field, ConfigDict
 
 ROOT=Path(__file__).resolve().parent
@@ -39,6 +39,8 @@ FILE_PATHS={}
 SOURCE_STORE=SourceStore(lambda:db())
 SOURCE_CATALOG=SourceCatalog(__import__("sys").modules[__name__],SOURCE_STORE)
 CATALOG_CHANGED=asyncio.Event()
+GEOCODE_LOCK=asyncio.Lock()
+GEOCODER_URL=os.getenv('GEOCODER_URL','https://nominatim.openstreetmap.org/search').strip()
 
 def db():
     c=sqlite3.connect(DB,timeout=15);c.row_factory=sqlite3.Row
@@ -71,6 +73,7 @@ def setup():
         CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY AUTOINCREMENT,uid INTEGER,lid TEXT,action TEXT,created REAL);
         CREATE TABLE IF NOT EXISTS drafts(uid INTEGER PRIMARY KEY,text TEXT,photos TEXT,updated REAL);
         CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY,value TEXT);
+        CREATE TABLE IF NOT EXISTS geocode_cache(key TEXT PRIMARY KEY,payload TEXT NOT NULL,expires REAL NOT NULL);
         ''')
         if not c.execute("SELECT 1 FROM meta WHERE key='reports_v1'").fetchone():
             for row in c.execute("SELECT a.*,u.username,u.name FROM audit a LEFT JOIN users u ON u.uid=a.uid WHERE action='report'").fetchall():
@@ -328,7 +331,7 @@ async def headers(req,call_next):
     except ValueError:return JSONResponse({'detail':'Invalid length'},400)
     if length>11_000_000:return JSONResponse({'detail':'Максимум 10 МБ'},413)
     r=await call_next(req)
-    r.headers['X-Content-Type-Options']='nosniff';r.headers['Referrer-Policy']='no-referrer'
+    r.headers['X-Content-Type-Options']='nosniff';r.headers['Referrer-Policy']='strict-origin-when-cross-origin' if req.url.path=='/' else 'no-referrer'
     if req.url.path.startswith('/api'):r.headers['Cache-Control']='no-store'
     return r
 
@@ -341,7 +344,71 @@ async def index():
     s=(ROOT/'web/index.html').read_text(encoding='utf-8')
     return HTMLResponse(s)
 @app.get('/api/config')
-async def config():return {'live':LIVE,'bot_username':BOT if LIVE else '', 'version':'0.5.0','channel_configured':bool(LIVE and CHAT),'paid_channel_configured':bool(LIVE and PAID_CHAT),'source_enabled':os.getenv('TELEGRAM_SYNC_ENABLED','0')=='1'}
+async def config():return {'live':LIVE,'bot_username':BOT if LIVE else '', 'version':'0.5.0','channel_configured':bool(LIVE and CHAT),'paid_channel_configured':bool(LIVE and PAID_CHAT),'source_enabled':os.getenv('TELEGRAM_SYNC_ENABLED','0')=='1','maps_enabled':bool(GEOCODER_URL)}
+
+@app.get('/assets/{filename}')
+async def map_asset(filename:str):
+    if filename not in ('leaflet-1.9.4.js','leaflet-1.9.4.css'):raise HTTPException(404)
+    return FileResponse(ROOT/'web/vendor'/filename,headers={'Cache-Control':'public, max-age=31536000, immutable'})
+
+
+def map_candidates(rows):
+    if not isinstance(rows,list):raise ValueError('Invalid geocoder response')
+    result=[];seen=set()
+    for row in rows[:3]:
+        if not isinstance(row,dict) or not isinstance(row.get('address'),dict):continue
+        try:
+            lat=float(row['lat']);lon=float(row['lon']);address=row.get('address',{})
+            if not (40.02<=lat<=40.30 and 44.36<=lon<=44.65) or address.get('country_code')!='am':continue
+            if address.get('ISO3166-2-lvl4')!='AM-ER' and str(address.get('city','')).casefold() not in ('ереван','yerevan','երևան','երեւան'):continue
+            label=str(row['display_name'])[:400];key=(round(lat,6),round(lon,6))
+            if key in seen:continue
+            seen.add(key)
+            result.append({'lat':lat,'lon':lon,'label':label,'precision':'building' if address.get('house_number') else 'street' if row.get('addresstype') in ('road','street','pedestrian') else 'area'})
+        except (KeyError,ValueError,TypeError):continue
+    return result
+
+
+async def geocode_address(address):
+    key=hashlib.sha256((GEOCODER_URL+'|Ереван|'+re.sub(r'\s+',' ',address).strip().casefold()).encode()).hexdigest()
+    def cached():
+        with db() as c:row=c.execute('SELECT payload FROM geocode_cache WHERE key=? AND expires>?',(key,time.time())).fetchone()
+        return json.loads(row['payload']) if row else None
+    value=cached()
+    if value is not None:return value
+    if GEOCODE_LOCK.locked():raise HTTPException(429,'Карта загружается. Попробуйте через секунду.',headers={'Retry-After':'1'})
+    async with GEOCODE_LOCK:
+        value=cached()
+        if value is not None:return value
+        with db() as c:
+            row=c.execute("SELECT value FROM meta WHERE key='geocoder_next'").fetchone();wait=float(row['value'])-time.time() if row else 0
+        if wait>2:raise HTTPException(503,'Сервис карты временно недоступен.',headers={'Retry-After':str(int(wait)+1)})
+        if wait>0:await asyncio.sleep(wait)
+        with db() as c:c.execute("INSERT OR REPLACE INTO meta VALUES('geocoder_next',?)",(str(time.time()+1.1),))
+        params={'street':address,'city':'Ереван','country':'Армения','countrycodes':'am','format':'jsonv2','addressdetails':1,'limit':3,'accept-language':'ru,hy,en','viewbox':'44.36,40.30,44.65,40.02','bounded':1}
+        try:
+            async with httpx.AsyncClient(timeout=10,follow_redirects=False) as client:
+                response=await client.get(GEOCODER_URL,params=params,headers={'User-Agent':'ArmeniaRent/0.5 (+https://github.com/berkutx/arm-rent-bot)'})
+            if response.status_code==429:
+                retry=response.headers.get('Retry-After','60');delay=max(60,int(retry) if retry.isdigit() else 60)
+                with db() as c:c.execute("INSERT OR REPLACE INTO meta VALUES('geocoder_next',?)",(str(time.time()+delay),))
+            response.raise_for_status();value=map_candidates(response.json())
+        except (httpx.HTTPError,ValueError,TypeError):raise HTTPException(503,'Сервис карты временно недоступен. Попробуйте позже.') from None
+        with db() as c:
+            c.execute('DELETE FROM geocode_cache WHERE expires<?',(time.time(),))
+            c.execute('INSERT OR REPLACE INTO geocode_cache VALUES(?,?,?)',(key,dumps(value),time.time()+(30 if value else 1)*86400))
+        return value
+
+
+@app.get('/api/listings/{lid}/map')
+async def listing_map(lid:str):
+    r=getrow(lid);d=json.loads(r['payload'])
+    if r['status'] not in ('active','rented') or d.get('city')!='Ереван':raise HTTPException(404,'Карта доступна для объявлений Еревана')
+    if not GEOCODER_URL:raise HTTPException(503,'Карта временно недоступна')
+    points=await geocode_address(d['address'])
+    latest=getrow(lid);now=json.loads(latest['payload'])
+    if latest['status'] not in ('active','rented') or now.get('address')!=d['address'] or now.get('city')!=d['city']:raise HTTPException(409,'Объявление изменилось. Откройте карточку заново.')
+    return {'points':points,'tile_url':os.getenv('MAP_TILE_URL','https://tile.openstreetmap.org/{z}/{x}/{y}.png')}
 
 @app.get('/healthz')
 async def health():

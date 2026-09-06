@@ -78,6 +78,10 @@ with tempfile.TemporaryDirectory(prefix='rent-gallery-', ignore_cleanup_errors=T
         expect(page.locator('.listing')).to_have_count(4)
         def districts(total, each):
             page.locator('[data-action=district]').click()
+            if page.locator('#filter-city').input_value()!='Ереван':
+                page.locator('#filter-city').select_option('Ереван')
+                page.wait_for_function('!sheetKind')
+                page.locator('[data-action=district]').click()
             expect(page.locator('[data-action=select-district]')).to_have_count(13)
             assert not page.locator('.sheet details,.sheet .note').count()
             expect(page.locator('[data-action=select-district][data-id=""] .district-count')).to_have_text(str(total))
