@@ -95,4 +95,4 @@ def test_legacy_renew_button_is_noop(client,monkeypatch):
     asyncio.run(s.receive({'callback_query':{'id':'old-button','from':{'id':42},'data':'still:'+l['id']}}))
     assert s.getrow(l['id'])['created']==before
     assert all(method=='answerCallbackQuery' for method,payload in calls)
-    assert 'Продлевать не нужно' in calls[-1][1]['text']
+    assert 'Статус объявления меняется вручную' in calls[-1][1]['text']

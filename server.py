@@ -787,7 +787,7 @@ def public_text(l):
     role={'owner':'Собственник — со слов автора','tenant':'Съезжающий жилец','agent':'Представитель / агент'}.get(l['role'])
     if role:lines.append(role)
     if l.get('role')=='agent' and l.get('agent_affiliation'):lines.append(l['agent_affiliation'])
-    badge={'document_checked':'Документ проверен через e-cadastre; личность не сверена','owner_verified':'Собственник сверён по e-cadastre и личности','representative_verified':'Представитель: документ и полномочия сверены'}.get(l.get('document_status'))
+    badge={'document_checked':'Документ и объект сверены через e-cadastre','owner_verified':'Собственник сверён по e-cadastre и личности','representative_verified':'Представитель: документ и полномочия сверены'}.get(l.get('document_status'))
     if badge:lines.append(badge+' · '+str(l.get('document_checked_at',''))[:10])
     if l.get('contract')=='yes':lines.append('Письменный договор: автор согласен')
     if l.get('residence_registration') in ('yes','ask'):lines.append('Регистрация проживания: '+('автор согласен' if l['residence_registration']=='yes' else 'по договорённости'))
@@ -835,7 +835,7 @@ async def process_job(j):
     elif kind=='admin':
         for admin in ADMINS:
             label='Жалоба на объявление' if p.get('report') else 'Нужно решение: '+(r['reason'] or 'необязательная проверка документа')
-            await tg('sendMessage',{'chat_id':admin,'text':label+'\n'+l['address']+'\nРеквизиты документа не пересылаются в сообщения.','reply_markup':{'inline_keyboard':[[{'text':'Открыть задачу','url':link('admin')}],[{'text':'Опубликовать','callback_data':'approve:'+lid},{'text':'Отклонить','callback_data':'reject:'+lid}]]}})
+            await tg('sendMessage',{'chat_id':admin,'text':label+'\n'+l['address']+'\nПодробности — в задаче.','reply_markup':{'inline_keyboard':[[{'text':'Открыть задачу','url':link('admin')}],[{'text':'Опубликовать','callback_data':'approve:'+lid},{'text':'Отклонить','callback_data':'reject:'+lid}]]}})
             await asyncio.sleep(1.05)
     elif kind=='match':
         with db() as c:
@@ -907,7 +907,7 @@ async def receive(update):
             elif a=='rented':status_change(lid,uid,'rented')
             elif a=='still':
                 if uid!=r['uid'] and uid not in ADMINS:raise HTTPException(403,'Это не ваше объявление')
-                await tg('answerCallbackQuery',{'callback_query_id':cb['id'],'text':'Продлевать не нужно. Объявления не скрываются по времени.'});return
+                await tg('answerCallbackQuery',{'callback_query_id':cb['id'],'text':'Статус объявления меняется вручную в разделе «Мои».'});return
             else:raise HTTPException(400,'Неизвестная кнопка')
             await tg('answerCallbackQuery',{'callback_query_id':cb['id'],'text':{'rented':'Объявление снято','approve':'Одобрено','reject':'Снято с публикации'}.get(a,'Готово')})
         except HTTPException as e:await tg('answerCallbackQuery',{'callback_query_id':cb['id'],'text':str(e.detail),'show_alert':True})

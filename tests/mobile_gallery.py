@@ -51,6 +51,7 @@ with tempfile.TemporaryDirectory(prefix='rent-gallery-', ignore_cleanup_errors=T
     for i in range(6):
         request = body(address=f'Тестовая {i+10}')
         request['listing']['photos'] = photos
+        request['listing']['district'] = 'Кентрон' if i%2==0 else 'Арабкир'
         if i >= 4:
             request['listing'].update(role='agent', commission=80000, commission_type='fixed')
         response = client.post('/api/listings', headers=signed(), json=request)
@@ -75,6 +76,27 @@ with tempfile.TemporaryDirectory(prefix='rent-gallery-', ignore_cleanup_errors=T
         page.route('**/*', route)
         page.goto('https://rent.test/')
         expect(page.locator('.listing')).to_have_count(4)
+        def districts(total, each):
+            page.locator('[data-action=district]').click()
+            expect(page.locator('[data-action=select-district]')).to_have_count(13)
+            assert not page.locator('.sheet details,.sheet .note').count()
+            expect(page.locator('[data-action=select-district][data-id=""] .district-count')).to_have_text(str(total))
+            for name in ['Кентрон','Арабкир']:
+                expect(page.locator('[data-action=select-district][data-id="'+name+'"] .district-count')).to_have_text(str(each))
+            for width in [320,360,390,430]:
+                page.set_viewport_size({'width':width,'height':844})
+                assert page.evaluate('document.documentElement.scrollWidth')==width
+                for box in page.locator('[data-action=select-district]').all():
+                    rect=box.bounding_box();assert rect and rect['y']>=0 and rect['y']+rect['height']<=844
+            page.set_viewport_size({'width':390,'height':844})
+            page.screenshot(path=str(OUT/'all-districts-390.png'),animations='disabled')
+            page.locator('[data-action=select-district][data-id="Нубарашен"]').click()
+            page.wait_for_function('!sheetKind')
+            assert page.evaluate('state.filters.district')=='Нубарашен'
+            expect(page.locator('.empty')).to_contain_text('Нет подходящих вариантов')
+            page.locator('[data-action=reset-filters]').click()
+        districts(4,2)
+
         assert page.locator('.listing .photo-tile').count() == 12
         for width in [320, 360, 390, 430]:
             page.set_viewport_size({'width':width, 'height':844})
@@ -145,6 +167,7 @@ with tempfile.TemporaryDirectory(prefix='rent-gallery-', ignore_cleanup_errors=T
         page.locator('.compact-grid .listing').first.wait_for()
         page.locator('[data-action=market][data-id=paid]').click()
         expect(page.locator('.listing')).to_have_count(2)
+        districts(2,1)
         assert all('80' in text for text in page.locator('.commission-note').all_text_contents())
         page.evaluate('tg.colorScheme="dark";applyTheme()')
         page.screenshot(path=str(OUT/'paid-grid-dark-390.png'), animations='disabled')
