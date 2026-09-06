@@ -115,10 +115,10 @@ function navigate(screen, push=true) {
   persist(); render(); window.scrollTo(0,0);
 }
 function feed() {
-  const ls=filtered(),f=state.filters,sub=currentSubscription(),budget=f.max?`До ${money(f.max)} ${sym(f.currency)}`:'Бюджет';
+  const ls=filtered(),f=state.filters,hasMarket=all().some(l=>C.matches(l,{market:f.market})),sub=currentSubscription(),budget=f.max?`До ${money(f.max)} ${sym(f.currency)}`:'Бюджет';
   return `${marketSwitch()}<div class="filters" aria-label="Фильтры поиска"><button class="filter-chip" data-action="budget"><span>${esc(budget)}</span>${icon('down')}</button><button class="filter-chip" data-action="district"><span>${esc(f.district||(f.city==='Ереван'?'Район':f.city||'Город'))}</span>${icon('down')}</button><button class="filter-chip" data-action="rooms"><span>${esc(housingFilterLabel(f))}</span>${icon('down')}</button><button class="filter-chip conditions-chip" data-action="conditions-filter" aria-label="Условия" title="Условия">${icon('sliders')}</button></div>
   <div class="results-heading"><button class="sort-button" data-action="sort">${ls.length} ${plural(ls.length,'вариант','варианта','вариантов')} · ${state.sort==='price'?'дешевле':'новые'} ${icon('down')}</button><div class="catalog-tools"><button class="follow-button ${sub?.active?'on':''}" data-action="follow" aria-label="${sub?.active?'Уведомления включены':'Уведомлять о новых вариантах'}" title="Уведомлять" aria-pressed="${!!sub?.active}">${icon(sub?.active?'check':'bell')}</button>${layoutSwitch()}</div></div>
-  <div class="list ${state.layout==='grid'?'compact-grid':'album-feed'}">${ls.map(card).join('')||(state.remote.length?empty('Нет подходящих вариантов','Попробуйте другой город или бюджет.','Сбросить фильтры','reset-filters'):empty('Пока нет объявлений','Добавьте жильё или подпишитесь на поиск.','Сдать жильё','nav','add'))}</div>`;
+  <div class="list ${state.layout==='grid'?'compact-grid':'album-feed'}">${ls.map(card).join('')||(hasMarket?empty('Нет подходящих вариантов','Попробуйте другой город или бюджет.','Сбросить фильтры','reset-filters'):empty('Пока нет объявлений',f.market==='paid'?'В этом разделе появятся предложения агентов с указанной комиссией.':'Добавьте жильё или подпишитесь на поиск.','Сдать жильё','nav','add'))}</div>`;
 }
 function plural(n,a,b,c) { return n%10===1&&n%100!==11?a:n%10>=2&&n%10<=4&&(n%100<12||n%100>14)?b:c; }
 function viewsHTML(l) {
