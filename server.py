@@ -74,6 +74,7 @@ def setup():
         CREATE TABLE IF NOT EXISTS drafts(uid INTEGER PRIMARY KEY,text TEXT,photos TEXT,updated REAL);
         CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY,value TEXT);
         CREATE TABLE IF NOT EXISTS geocode_cache(key TEXT PRIMARY KEY,payload TEXT NOT NULL,expires REAL NOT NULL);
+        CREATE TABLE IF NOT EXISTS listing_locations(lid TEXT PRIMARY KEY,address_key TEXT NOT NULL,payload TEXT NOT NULL,updated REAL NOT NULL);
         ''')
         if not c.execute("SELECT 1 FROM meta WHERE key='reports_v1'").fetchone():
             for row in c.execute("SELECT a.*,u.username,u.name FROM audit a LEFT JOIN users u ON u.uid=a.uid WHERE action='report'").fetchall():
@@ -369,8 +370,8 @@ def map_candidates(rows):
     return result
 
 
-async def geocode_address(address):
-    key=hashlib.sha256((GEOCODER_URL+'|Ереван|'+re.sub(r'\s+',' ',address).strip().casefold()).encode()).hexdigest()
+async def geocode_address(address,area=False):
+    key=hashlib.sha256((GEOCODER_URL+('|район|' if area else '|адрес|')+'Ереван|'+re.sub(r'\s+',' ',address).strip().casefold()).encode()).hexdigest()
     def cached():
         with db() as c:row=c.execute('SELECT payload FROM geocode_cache WHERE key=? AND expires>?',(key,time.time())).fetchone()
         return json.loads(row['payload']) if row else None
@@ -386,6 +387,9 @@ async def geocode_address(address):
         if wait>0:await asyncio.sleep(wait)
         with db() as c:c.execute("INSERT OR REPLACE INTO meta VALUES('geocoder_next',?)",(str(time.time()+1.1),))
         params={'street':address,'city':'Ереван','country':'Армения','countrycodes':'am','format':'jsonv2','addressdetails':1,'limit':3,'accept-language':'ru,hy,en','viewbox':'44.36,40.30,44.65,40.02','bounded':1}
+        if area:
+            for field in ('street','city','country'):params.pop(field)
+            params['q']=address+', Ереван, Армения'
         try:
             async with httpx.AsyncClient(timeout=10,follow_redirects=False) as client:
                 response=await client.get(GEOCODER_URL,params=params,headers={'User-Agent':'ArmeniaRent/0.5 (+https://github.com/berkutx/arm-rent-bot)'})
@@ -400,15 +404,28 @@ async def geocode_address(address):
         return value
 
 
+def location_key(d):return hashlib.sha256(dumps([d.get('city'),d.get('address'),d.get('district')]).encode()).hexdigest()
+
+
 @app.get('/api/listings/{lid}/map')
 async def listing_map(lid:str):
-    r=getrow(lid);d=json.loads(r['payload'])
+    r=getrow(lid);d=json.loads(r['payload']);key=location_key(d)
     if r['status'] not in ('active','rented') or d.get('city')!='Ереван':raise HTTPException(404,'Карта доступна для объявлений Еревана')
     if not GEOCODER_URL:raise HTTPException(503,'Карта временно недоступна')
-    points=await geocode_address(d['address'])
-    latest=getrow(lid);now=json.loads(latest['payload'])
-    if latest['status'] not in ('active','rented') or now.get('address')!=d['address'] or now.get('city')!=d['city']:raise HTTPException(409,'Объявление изменилось. Откройте карточку заново.')
-    return {'points':points,'tile_url':os.getenv('MAP_TILE_URL','https://tile.openstreetmap.org/{z}/{x}/{y}.png')}
+    with db() as c:stored=c.execute('SELECT payload FROM listing_locations WHERE lid=? AND address_key=?',(lid,key)).fetchone()
+    if stored:point=json.loads(stored['payload'])
+    else:
+        points=await geocode_address(d['address']);point=points[0] if points else None
+        if point and len(points)>1:point={**point,'precision':'area'}
+        if not point and d.get('district'):
+            points=await geocode_address(d['district'],area=True)
+            if points:point={**points[0],'precision':'district','district':d['district']}
+        with db() as c:
+            c.execute('BEGIN IMMEDIATE')
+            latest=c.execute('SELECT * FROM listings WHERE id=?',(lid,)).fetchone()
+            if not latest or latest['status'] not in ('active','rented') or location_key(json.loads(latest['payload']))!=key:raise HTTPException(409,'Объявление изменилось. Откройте карточку заново.')
+            c.execute('INSERT OR REPLACE INTO listing_locations VALUES(?,?,?,?)',(lid,key,dumps(point),time.time()))
+    return {'state':'resolved' if point else 'not_found','points':[point] if point else [],'tile_url':os.getenv('MAP_TILE_URL','https://tile.openstreetmap.org/{z}/{x}/{y}.png')}
 
 @app.get('/healthz')
 async def health():

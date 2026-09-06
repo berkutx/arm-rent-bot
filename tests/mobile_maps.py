@@ -32,7 +32,7 @@ with tempfile.TemporaryDirectory(prefix='map-mobile-',ignore_cleanup_errors=True
   assert not any('/map' in x or '/assets/' in x or 'tile.openstreetmap.org' in x for x in requests)
   page.evaluate('state.filters.city="";render()');assert page.locator('[data-listing="'+out['id']+'"] [data-action=map]').count()==0
   page.locator('[data-listing="'+ad['id']+'"] [data-action=map]').click();page.locator('.leaflet-container').wait_for()
-  expect(page.locator('#map-status')).to_contain_text('OpenStreetMap')
+  expect(page.locator('#map-status')).to_contain_text('Примерное расположение')
   expect(page.locator('.leaflet-control-attribution')).to_contain_text('OpenStreetMap')
   assert page.locator('.leaflet-overlay-pane svg').evaluate('(x)=>x.getBoundingClientRect().width>200')
   zoom=page.evaluate('rentalMap.getZoom()');page.locator('.leaflet-control-zoom-in').click();page.wait_for_timeout(350);assert page.evaluate('rentalMap.getZoom()')==zoom+1
@@ -40,12 +40,19 @@ with tempfile.TemporaryDirectory(prefix='map-mobile-',ignore_cleanup_errors=True
    page.set_viewport_size({'width':width,'height':844});assert page.evaluate('document.documentElement.scrollWidth')==width
    page.screenshot(path=str(O/f'map-{width}.png'),animations='disabled')
   page.locator('.sheet-head [data-action=close]').click();page.wait_for_function('!sheetKind');assert page.evaluate('rentalMap===null')
-  points[0]['precision']='street';points.append({'lat':40.18,'lon':44.52,'label':'<img src=x onerror=alert(1)>','precision':'area'})
-  page.locator('[data-listing="'+ad['id']+'"] [data-action=map]').click();page.locator('[data-action=map-point]').first.wait_for()
-  assert not page.locator('#map-choices img').count();expect(page.locator('#rental-map')).not_to_be_visible()
-  page.locator('[data-action=map-point]').first.click();expect(page.locator('#map-status')).to_contain_text('Показана улица')
-  page.locator('.sheet-head [data-action=close]').click();page.wait_for_function('!sheetKind');points.clear()
+  with s.db() as c:c.execute('DELETE FROM listing_locations')
+  points.append({'lat':40.18,'lon':44.52,'label':'Переулок','precision':'building'})
+  page.locator('[data-listing="'+ad['id']+'"] [data-action=map]').click();page.locator('.leaflet-container').wait_for()
+  expect(page.locator('#map-status')).to_contain_text('Примерное расположение')
+  assert not page.locator('[data-action=map-point],[data-action=save-map]').count()
+  page.locator('.sheet-head [data-action=close]').click();page.wait_for_function('!sheetKind')
+  with s.db() as c:c.execute('DELETE FROM listing_locations')
+  points[:]=[{'lat':40.2,'lon':44.51,'label':'Улица','precision':'street'}]
+  page.locator('[data-listing="'+ad['id']+'"] [data-action=map]').click();expect(page.locator('#map-status')).to_contain_text('расположение улицы')
+  page.locator('.sheet-head [data-action=close]').click();page.wait_for_function('!sheetKind')
+  points.clear()
+  with s.db() as c:c.execute('DELETE FROM listing_locations')
   page.locator('[data-listing="'+ad['id']+'"] [data-action=map]').click();expect(page.locator('#map-status')).to_contain_text('Адрес не найден')
   assert not errors,errors
-  print(json.dumps({'result':'passed','external_requests':0,'scenarios':['lazy assets and geocoding','Yerevan only','zoom and cleanup','ambiguous address selection','street precision','no result'],'js_errors':errors}))
+  print(json.dumps({'result':'passed','external_requests':0,'scenarios':['lazy assets and geocoding','Yerevan only','zoom and cleanup','stored approximate point without selection','street precision','no result'],'js_errors':errors}))
   browser.close()

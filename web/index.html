@@ -1499,7 +1499,6 @@ async function action(a,id,el) {
   if (a==='phone-listings') return phoneListings(id,el);
   if (a==='ban') return banSheet(id);
   if(a==='map')return openMap(id);
-  if(a==='map-point')return drawMapPoint(Number(id));
   if(a==='source-post')return sourcePostSheet(id);
   if(a==='ignore-source'||a==='activate-source'){
     el.disabled=true;try{if(a==='activate-source')await api('/api/admin/source/activate','POST',{});else await api('/api/admin/source/posts/'+encodeURIComponent(id),'POST',{revision:state.sourcePost.revision,ignore:true});closeSheet();await refresh();await refreshAdmin();render();}finally{if(el.isConnected)el.disabled=false;}return;
@@ -1922,25 +1921,22 @@ function loadLeaflet(){
 }
 async function openMap(id){
   const l=item(id);if(!l||l.city!=='Ереван')return;
-  showSheet('Адрес на карте',`<p>${esc(l.address)}</p><p class="note" id="map-status" role="status">Ищем адрес…</p><div id="map-choices" class="stack"></div><div id="rental-map" role="region" aria-label="Карта адреса" hidden></div><p class="map-credit">Геокодинг: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> · Nominatim</p>`,`<button class="button secondary" data-action="detail" data-id="${esc(id)}">К объявлению</button>`,'map',id,'map-sheet');
+  showSheet('Адрес на карте',`<p>${esc(l.address)}</p><p class="note" id="map-status" role="status">Ищем адрес…</p><div id="rental-map" role="region" aria-label="Карта адреса" hidden></div><p class="map-credit">Геокодинг: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a> · Nominatim</p>`,`<button class="button secondary" data-action="detail" data-id="${esc(id)}">К объявлению</button>`,'map',id,'map-sheet');
   const generation=mapGeneration;
   try{
     const [result]=await Promise.all([api('/api/listings/'+encodeURIComponent(id)+'/map'),loadLeaflet()]);
     if(generation!==mapGeneration)return;
     mapPoints=result.points;mapTiles=result.tile_url;
     if(!mapPoints.length){$('#map-status').textContent='Адрес не найден на карте. Уточните расположение у автора.';return;}
-    if(mapPoints.length>1){
-      $('#map-status').textContent='Найдено несколько мест. Выберите совпадающий адрес.';
-      $('#map-choices').innerHTML=mapPoints.map((point,i)=>`<button class="choice-row" data-action="map-point" data-id="${i}">${esc(point.label)}</button>`).join('');
-    }else drawMapPoint(0);
+    drawMapPoint(0);
   }catch(error){if(generation===mapGeneration)$('#map-status').textContent=error.message;}
 }
 function drawMapPoint(index){
   const point=mapPoints[index];if(!point||sheetKind!=='map')return;
   if(rentalMap)rentalMap.remove();
-  $('#map-choices').innerHTML='';$('#rental-map').hidden=false;
-  $('#map-status').textContent=point.precision==='building'?'Место по данным OpenStreetMap.':point.precision==='street'?'Показана улица, положение дома уточните у автора.':'Показан район поиска, положение дома уточните у автора.';
-  rentalMap=L.map('rental-map',{scrollWheelZoom:false}).setView([point.lat,point.lon],point.precision==='building'?17:15);
+  $('#rental-map').hidden=false;
+  $('#map-status').textContent=point.precision==='district'?'Примерно: район '+point.district+'.':point.precision==='street'?'Примерное расположение улицы.':'Примерное расположение по адресу.';
+  rentalMap=L.map('rental-map',{scrollWheelZoom:false}).setView([point.lat,point.lon],point.precision==='district'?13:point.precision==='building'?17:15);
   L.tileLayer(mapTiles,{maxZoom:19,updateWhenIdle:true,keepBuffer:1,referrerPolicy:'origin',attribution:'© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a>'}).addTo(rentalMap);
   const marker=L.circleMarker([point.lat,point.lon],{radius:8,color:'#137d63',fillOpacity:point.precision==='building'?.9:0,dashArray:point.precision==='building'?null:'3 3'});
   const label=document.createElement('span');label.textContent=point.label;marker.addTo(rentalMap).bindTooltip(label,{direction:'top'});

@@ -51,7 +51,7 @@ def test_map_empty_response_cached_and_provider_limit_respected(maps,monkeypatch
  l=create(maps);calls=mock_provider(monkeypatch,[])
  assert maps.get('/api/listings/'+l['id']+'/map').json()['points']==[]
  assert maps.get('/api/listings/'+l['id']+'/map').status_code==200 and len(calls)==1
- with s.db() as c:c.execute('DELETE FROM geocode_cache')
+ with s.db() as c:c.execute('DELETE FROM geocode_cache');c.execute('DELETE FROM listing_locations')
  calls=mock_provider(monkeypatch,{},429,{'Retry-After':'120'})
  assert maps.get('/api/listings/'+l['id']+'/map').status_code==503
  assert maps.get('/api/listings/'+l['id']+'/map').status_code==503 and len(calls)==1
@@ -71,3 +71,27 @@ def test_map_edit_during_lookup_does_not_return_old_coordinates(maps,monkeypatch
  monkeypatch.setattr(s,'geocode_address',lookup)
  response=maps.get('/api/listings/'+l['id']+'/map')
  assert response.status_code==409 and '44.51' not in response.text
+
+
+def test_approximate_location_is_persisted_without_repeated_choice(maps,monkeypatch):
+ l=create(maps);calls=mock_provider(monkeypatch,[point(),point(lat='40.20',display_name='Переулок')])
+ path='/api/listings/'+l['id']+'/map';result=maps.get(path).json()
+ assert len(result['points'])==1 and result['points'][0]['lat']==40.19 and result['points'][0]['precision']=='area'
+ with s.db() as c:c.execute('DELETE FROM geocode_cache')
+ assert maps.get(path).json()==result and len(calls)==1
+
+
+def test_missing_building_uses_explicit_district_and_invalidates_when_changed(maps,monkeypatch):
+ l=create(maps)
+ with s.db() as c:
+  payload=json.loads(s.getrow(l['id'])['payload']);payload['district']='Арабкир';c.execute('UPDATE listings SET payload=? WHERE id=?',(s.dumps(payload),l['id']))
+ calls=[]
+ async def lookup(address,area=False):
+  calls.append((address,area));return [{'lat':40.2,'lon':44.5,'label':'Арабкир','precision':'area'}] if area else []
+ monkeypatch.setattr(s,'geocode_address',lookup)
+ result=maps.get('/api/listings/'+l['id']+'/map').json()
+ assert result['points'][0]['precision']=='district' and result['points'][0]['district']=='Арабкир'
+ assert calls==[(l['address'],False),('Арабкир',True)]
+ with s.db() as c:
+  payload['district']='Кентрон';c.execute('UPDATE listings SET payload=? WHERE id=?',(s.dumps(payload),l['id']))
+ assert maps.get('/api/listings/'+l['id']+'/map').json()['points'][0]['district']=='Кентрон'

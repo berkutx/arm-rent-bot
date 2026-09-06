@@ -357,7 +357,7 @@ class SourceCatalog:
             for row in legacy:
                 lid=row['id']
                 c.execute('DELETE FROM report_uploads WHERE rid IN (SELECT id FROM reports WHERE lid=?)',(lid,))
-                for table in ('reports','listing_views','deliveries','audit','listing_changes'):c.execute('DELETE FROM '+table+' WHERE lid=?',(lid,))
+                for table in ('reports','listing_views','deliveries','audit','listing_changes','listing_locations'):c.execute('DELETE FROM '+table+' WHERE lid=?',(lid,))
                 c.execute("DELETE FROM jobs WHERE json_extract(payload,'$.id')=?",(lid,))
                 c.execute('DELETE FROM listings WHERE id=?',(lid,))
                 for photo in json.loads(row['payload']).get('photos',[]):
