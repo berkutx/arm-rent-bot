@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import parse_qsl
 import httpx
+import bot_stats
 from source_sync import SourceStore,SourceCatalog,run_reader,run_deletion_checks
 from cryptography.fernet import Fernet
 from fastapi import FastAPI, Depends, HTTPException, Query, Request
@@ -103,6 +104,7 @@ def setup():
                 c.execute('INSERT OR IGNORE INTO jobs(kind,payload,jobkey,run_at) VALUES(?,?,?,?)',('edit',json.dumps({'id':row['id']}),'v4-restore:'+row['id'],time.time()))
             c.execute("INSERT INTO meta(key,value) VALUES('age_only_v4','1')")
 
+    with db() as c:bot_stats.setup(c)
     SOURCE_STORE.setup()
 
 
@@ -136,6 +138,15 @@ def enqueue(kind,payload,key):
     with db() as c:c.execute('INSERT OR IGNORE INTO jobs(kind,payload,jobkey,run_at) VALUES(?,?,?,?)',(kind,dumps(payload),key,time.time()))
 def audit(uid,lid,action):
     with db() as c:c.execute('INSERT INTO audit(uid,lid,action,created) VALUES(?,?,?,?)',(uid,lid,action,time.time()))
+
+def activity(uid,stage,c=None):
+    if uid in ADMINS:return
+    try:
+        if c is not None:bot_stats.record(c,uid,stage)
+        else:
+            with db() as connection:bot_stats.record(connection,uid,stage)
+    except sqlite3.Error:log.warning('Activity recording unavailable')
+
 
 def validate_init_data(raw:str,token:str,now:float|None=None)->dict:
     """HMAC verified on the server. Client-supplied user IDs/roles are never trusted."""
@@ -455,8 +466,19 @@ async def health():
     return {'ok':True,'mode':'live' if LIVE else 'local','version':'0.5.0'}
 @app.get('/api/me')
 async def me(u=Depends(user)):
+    activity(u['id'],'app')
     profile=get_agent_profile(u['id'])
     return {'id':u['id'],'username':u.get('username',''),'first_name':u.get('first_name',''),'last_name':u.get('last_name',''),'is_admin':u['id'] in ADMINS,'agent_profile_ready':bool(profile),'agent_affiliation':agent_affiliation(profile)}
+class ActivityIn(BaseModel):
+    model_config=ConfigDict(extra='forbid')
+    stage:Literal['app','housing','address','price','photos','contact']
+
+@app.post('/api/activity')
+async def record_activity(x:ActivityIn,u=Depends(user)):
+    rate(u['id'],'activity',60,60)
+    activity(u['id'],x.stage)
+    return {'ok':True}
+
 class AgentProfileIn(BaseModel):
     full_name:str=Field(min_length=3,max_length=120)
     phone:str=Field(min_length=8,max_length=40)
@@ -601,6 +623,7 @@ async def record_view(lid:str,u=Depends(user)):
         added=c.execute('INSERT OR IGNORE INTO listing_views(lid,viewer_key) VALUES(?,?)',(lid,key)).rowcount
         if added:c.execute('UPDATE listings SET view_count=view_count+1 WHERE id=?',(lid,))
         count=c.execute('SELECT view_count FROM listings WHERE id=?',(lid,)).fetchone()[0]
+        activity(u['id'],'view',c)
     return {'view_count':count}
 
 @app.get('/api/mine')
@@ -668,6 +691,7 @@ async def submit(s:Submission,u=Depends(user)):
         d['document_status']='none'
         private=CIPHER.encrypt(dumps(s.private.model_dump()).encode()) if any(s.private.model_dump().values()) else None
         c.execute('INSERT INTO listings(id,uid,payload,status,created,confirmed,fingerprint,private,private_expires,reason,phone_key) VALUES(?,?,?,?,?,?,?,?,?,?,?)',(lid,u['id'],dumps(d),status,now,None,fp,private,now+7*86400,'; '.join(reasons),normalize_phone(d['phone'])))
+        activity(u['id'],'submitted',c)
     with db() as c:c.execute('DELETE FROM drafts WHERE uid=?',(u['id'],))
     if status=='active':active_effects(lid)
     if reasons or private:enqueue('admin',{'id':lid},'admin:'+lid)
@@ -1197,6 +1221,10 @@ async def send_listing(l):
 
 async def process_job(j):
     kind=j['kind'];p=json.loads(j['payload']);uid=p.get('uid');lid=p.get('id')
+    if kind=='admin_stats':
+        if uid in ADMINS:
+            await tg('sendMessage',{'chat_id':uid,'text':p['text'],'link_preview_options':{'is_disabled':True}})
+        return
     if lid:
         r=getrow(lid);l=listing(r)
     if kind in ('publish','edit') and json.loads(r['payload']).get('_source_post'):return
@@ -1266,6 +1294,11 @@ async def maintenance():
             if d.get('document_status')=='pending':d['document_status']='none';c.execute('UPDATE listings SET payload=? WHERE id=?',(dumps(d),r['id']))
         daily=c.execute("SELECT DISTINCT uid FROM subscriptions WHERE active=1 AND frequency='daily'").fetchall()
         c.execute('DELETE FROM drafts WHERE updated<?',(now-7*86400,))
+    try:
+        with db() as c:
+            c.execute('BEGIN IMMEDIATE')
+            bot_stats.schedule(c,ADMINS,now=now)
+    except sqlite3.Error:log.warning('Activity reports unavailable')
     if today.hour>=19:
         for r in daily:enqueue('digest',{'uid':r['uid']},f"digest:{r['uid']}:{today.date()}")
 
@@ -1338,6 +1371,7 @@ async def receive(update):
     u=m.get('from',{});uid=u.get('id')
     if not uid:return
     with db() as c:c.execute('INSERT INTO users(uid,username,name,started) VALUES(?,?,?,1) ON CONFLICT(uid) DO UPDATE SET username=excluded.username,name=excluded.name,started=1',(uid,u.get('username',''),u.get('first_name','')))
+    activity(uid,'bot')
     text=m.get('text','')
     if text.startswith('/stop'):
         with db() as c:c.execute('UPDATE subscriptions SET active=0 WHERE uid=?',(uid,))
@@ -1358,18 +1392,18 @@ async def receive(update):
     if text=='/cancel':
         await tg('sendMessage',{'chat_id':uid,'text':'Приём фото закончен. Загруженные доказательства сохранены в жалобе.'});return
     start=text.removeprefix('/start ').strip()
-    if text.startswith('/start ') and re.fullmatch(r'(?:l_[A-Za-z0-9_-]{1,50}|report_[a-f0-9]{16}|review_[A-Za-z0-9_-]{1,50}|admin)',start):
+    if text.startswith('/start ') and re.fullmatch(r'(?:l_[A-Za-z0-9_-]{1,50}|report_[a-f0-9]{16}|review_[A-Za-z0-9_-]{1,50}|admin|mine|add)',start):
         if start=='admin' or start.startswith('review_'):
             if uid not in ADMINS:return
         await tg('sendMessage',{'chat_id':uid,'text':'Откройте в приложении:','reply_markup':{'inline_keyboard':[[app_button('Открыть',start)]]}});return
     if text=='/start photos':
         await tg('sendMessage',{'chat_id':uid,'text':'Пришлите до 10 фотографий альбомом, затем вернитесь к объявлению.','reply_markup':{'inline_keyboard':[[{'text':'Вернуться к объявлению','web_app':{'url':PUBLIC_URL+'?start=draft'}}]]}});return
     if text.startswith('/start') or text.startswith('/help'):
-        await tg('sendMessage',{'chat_id':uid,'text':'Найдите жильё без шума или пришлите сюда текст и фото своего объявления. Дальше укажите жильё, адрес и цену в приложении.','reply_markup':{'inline_keyboard':[[{'text':'Открыть приложение','web_app':{'url':PUBLIC_URL}}],[{'text':'Сдать жильё','web_app':{'url':PUBLIC_URL+'?start=add'}}]]}})
+        await tg('sendMessage',{'chat_id':uid,'text':'Поиск жилья и подача объявлений — в приложении.','reply_markup':{'inline_keyboard':[[app_button('Открыть приложение')],[app_button('Сдать жильё','add')],[app_button('Мои объявления','mine')]]}})
         return
     if text.startswith('/new'):
         with db() as c:c.execute('DELETE FROM drafts WHERE uid=?',(uid,))
-        await tg('sendMessage',{'chat_id':uid,'text':'Черновик очищен. Пришлите текст и фото нового объявления.'});return
+        await tg('sendMessage',{'chat_id':uid,'text':'Начните новое объявление в приложении.','reply_markup':{'inline_keyboard':[[app_button('Сдать жильё','add')]]}});return
     with db() as c:binding=c.execute('SELECT * FROM report_uploads WHERE uid=?',(uid,)).fetchone()
     if binding:return await receive_report_photo(m,uid,binding)
     if not (m.get('photo') or text or m.get('caption')):return
@@ -1383,7 +1417,7 @@ async def receive(update):
         photos.append(store_telegram_photo(m['photo'],uid))
     with db() as c:c.execute('INSERT OR REPLACE INTO drafts VALUES(?,?,?,?)',(uid,raw,dumps(photos),time.time()))
     if fresh:
-        await tg('sendMessage',{'chat_id':uid,'text':'Собираю черновик. Добавьте остальные фото, затем откройте карточку. Для следующего объявления: /new','reply_markup':{'inline_keyboard':[[{'text':'Проверить карточку','web_app':{'url':PUBLIC_URL+'?start=draft'}}]]}})
+        await tg('sendMessage',{'chat_id':uid,'text':'Сохранено. Добавьте остальные фото и продолжите в приложении.','reply_markup':{'inline_keyboard':[[{'text':'Продолжить объявление','web_app':{'url':PUBLIC_URL+'?start=draft'}}]]}})
 
 async def poll():
     with db() as c:r=c.execute("SELECT value FROM meta WHERE key='offset'").fetchone()

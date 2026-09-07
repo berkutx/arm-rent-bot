@@ -7,7 +7,7 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir --no-compile -r requirements.txt \
     && useradd --no-create-home --uid 10001 rent \
     && mkdir -p /app/data && chown rent:rent /app/data
-COPY server.py source_sync.py ./
+COPY server.py source_sync.py bot_stats.py ./
 COPY web/index.html web/districts.json ./web/
 COPY web/vendor/*LICENSE ./licenses/
 COPY web/vendor/maplibre-6.7.0/ ./web/vendor/maplibre-6.7.0/

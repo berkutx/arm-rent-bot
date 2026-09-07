@@ -37,12 +37,13 @@ let state = {
   screen:'feed', layout:savedLayout, postMarket:stored.postMarket==='paid'?'paid':'free', adminTab:'review', phoneInferred:false, filters:{...baseFilters(),...(stored.filters || {})}, sort:stored.sort || 'new',
   subs:[], own:[],
   text:'', photos:[], draft:null, formStep:0, phoneTouched:false, telegramPhotos:false,
-   channelConfigured:false, paidChannelConfigured:false, related:[], user:null, bot:'', remote:[], queue:[], busy:false, error:'', booted:false,
+   channelConfigured:false, paidChannelConfigured:false, related:[], user:null, personalReady:false, live:false, bot:'', remote:[], queue:[], busy:false, error:'', booted:false,
 };
 let tg = null, sheetKind = '', sheetArg = '', restoreFocus = null, toastTimer;
 let seenDraftPhotos=new Set();
 let photoGallery=null, openingGallery=false, galleryBackPending=false, galleryAfter=null;
 let startHandled = false;
+let activityWindow='',activitySeen=new Set();
 const FEED_PAGE=12;
 let feedState={key:'',ids:[],total:null,markets:{},districts:{},cities:[],next_cursor:null,loading:false,error:'',ready:false};
 let feedGeneration=0,feedPromise=null,feedController=null,feedObserver=null;
@@ -124,6 +125,7 @@ function render() {
   if($('#city-input'))updateAddressCity();
   if (state.error) $('#main').insertAdjacentHTML('afterbegin',`<div class="error-note">${esc(state.error)}</div>`);
   observeFeed();
+  requestAnimationFrame(trackSubmissionStep);
   if(state.screen==='feed'&&!feedState.ready&&!feedState.loading&&!feedState.error)void loadFeed();
 }
 function navigate(screen, push=true) {
@@ -435,6 +437,23 @@ async function api(path,method='GET',body,signal) {
   } catch(e) { if(e.name==='AbortError') throw Error('Нет ответа сервера. Попробуйте ещё раз.'); throw e; }
   finally { clearTimeout(timer);signal?.removeEventListener('abort',cancel); }
 }
+function currentActivity() {
+  const key=state.user.id+':'+Math.floor(Date.now()/3600000);
+  if(key!==activityWindow){activityWindow=key;activitySeen.clear();}
+  return activitySeen;
+}
+function recordActivity(stage) {
+  if(document.hidden||!state.live||!state.user||state.user.is_admin||!tg?.initData)return;
+  const seen=currentActivity();if(seen.has(stage))return;
+  seen.add(stage);
+  void api('/api/activity','POST',{stage}).catch(()=>{});
+}
+for(const event of ['pointerdown','keydown','wheel'])document.addEventListener(event,e=>{if(e.isTrusted)recordActivity('app');},{passive:true});
+function trackSubmissionStep() {
+  if(document.hidden||sheetKind||photoGallery||!['add','review'].includes(state.screen))return;
+  const stage=['housing','address','price','photos'][state.formStep];
+  if(stage)recordActivity(stage);
+}
 function requireUser() {
   if (state.user) return true;
   toast('Откройте приложение через своего Telegram-бота.'); return false;
@@ -497,7 +516,10 @@ async function loadFeed(more=false,preserve=false){
 }
 async function refreshPersonal(){
   if(!state.user)return;
-  [state.own,state.subs]=await Promise.all([api('/api/mine'),api('/api/subscriptions')]);
+  const user=state.user,[own,subs]=await Promise.all([api('/api/mine'),api('/api/subscriptions')]);
+  if(state.user!==user)return;
+  state.own=own;state.subs=subs;state.personalReady=true;
+  if(state.booted||startParam()==='mine')await startRoute();
 }
 async function refresh(){
   if(feedState.key!==feedKey())resetFeed();
@@ -821,12 +843,17 @@ function syncKeyboard() {
 window.visualViewport?.addEventListener('resize',syncKeyboard);
 window.visualViewport?.addEventListener('scroll',syncKeyboard);
 document.addEventListener('focusout',()=>setTimeout(syncKeyboard,100));
+function startParam() {
+  return tg?.initDataUnsafe?.start_param||new URLSearchParams(location.search).get('start')||new URLSearchParams(location.search).get('tgWebAppStartParam')||'';
+}
 async function startRoute() {
   if(startHandled)return;
-  const p=tg?.initDataUnsafe?.start_param||new URLSearchParams(location.search).get('start')||new URLSearchParams(location.search).get('tgWebAppStartParam')||'';
+  const p=startParam();
   if(!p)return;
-  if(!state.user && (['draft','admin'].includes(p)||p.startsWith('report_')||p.startsWith('review_')))return;
+  if(!state.user && (['draft','admin','mine'].includes(p)||p.startsWith('report_')||p.startsWith('review_')))return;
+  if(p==='mine'&&!state.personalReady)return;
   startHandled=true;
+  if(p==='mine'){mineSheet();return;}
   if(p.startsWith('report_')){await reportSheet(p.slice(7),true);return;}
   if(p.startsWith('review_')&&state.user?.is_admin){
     const id=p.slice(7);state.adminTab='review';await refreshAdmin();
@@ -862,10 +889,10 @@ async function connect() {
   if(connecting)return;connecting=true;
   try {
     const configWork=api('/api/config').then(config=>{
-      state.bot=config.bot_username;state.sourceEnabled=!!config.source_enabled;state.catalogEventsEnabled=!!(config.source_enabled||config.deletion_checks_enabled);state.mapsEnabled=!!config.maps_enabled;
+      state.live=!!config.live;state.bot=config.bot_username;state.sourceEnabled=!!config.source_enabled;state.catalogEventsEnabled=!!(config.source_enabled||config.deletion_checks_enabled);state.mapsEnabled=!!config.maps_enabled;
       state.channelConfigured=!!config.channel_configured;state.paidChannelConfigured=!!config.paid_channel_configured;connectCatalogEvents();render();
     });
-    const userWork=tg?.initData?api('/api/me').then(user=>{state.user=user;return refreshPersonal();}):Promise.resolve();
+    const userWork=tg?.initData?api('/api/me').then(user=>{state.user=user;state.personalReady=false;currentActivity().add('app');return refreshPersonal();}):Promise.resolve();
     await Promise.all([configWork,userWork,feedPromise]);render();await startRoute();
   } finally {connecting=false;}
 }
@@ -915,7 +942,7 @@ async function refreshVisible() {
   }
 }
 
-document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshVisible();});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){recordActivity('app');trackSubmissionStep();refreshVisible();}});
 
 function rentalDate(value) {
   return new Date(value+'T12:00:00').toLocaleDateString('ru-RU',{day:'numeric',month:'short',year:'numeric'});
@@ -999,6 +1026,7 @@ async function contactSheet(id) {
   Object.assign(item(id)||{},l);
   const contact=/^@[A-Za-z0-9_]{5,32}$/.test(l.contact||'')?l.contact:'';
   showSheet('Связаться с автором',`<div class="stack">${contact?`<button class="button" data-action="telegram-contact" data-id="${esc(id)}">Написать ${esc(contact)}</button>`:`<button class="button" data-action="discussion" data-id="${esc(id)}" ${l.telegram_discussion_url?'':'disabled'}>Открыть обсуждение</button>${l.telegram_discussion_url?'':'<p class="note">Обсуждение недоступно.</p>'}`}${contact&&/^\+[1-9]\d{7,14}$/.test(l.phone||'')?`<a class="button secondary" href="tel:${esc(l.phone)}">Позвонить ${esc(l.phone)}</a>`:''}</div>`,'','contact',id);
+  recordActivity('contact');
 }
 async function handleExtraForm(form,x) {
   if(form.id==='agent-profile-form'){
