@@ -191,7 +191,11 @@ with tempfile.TemporaryDirectory(prefix='rent-form-',ignore_cleanup_errors=True)
    if offer_pets is not None:offer['pets']=offer_pets
    pet_rows.append({**row,'id':'pets-'+key,'city':'Ереван','address':'Комитаса 18','kind':'apartment','rooms':2,'area':74,'photos':[],'pets':pets,'prices':[offer]})
   pet_rows.append({**pet_rows[0],'id':'pets-conditional','pets':'ask','prices':[{'amount':400000,'currency':'AMD','period':'month','pets':'no'},{'amount':450000,'currency':'AMD','period':'month','pets':'yes'}]})
-  page.evaluate('(rows)=>{state.remote=rows;state.own=[];state.screen="feed";state.filters=baseFilters();render()}',pet_rows)
+  with s.db() as connection:
+   connection.execute("UPDATE listings SET status='rented'")
+   for i,pet_row in enumerate(pet_rows):
+    connection.execute('INSERT INTO listings(id,uid,payload,status,created,phone_key,view_count) VALUES(?,?,?,?,?,?,?)',(pet_row['id'],42,s.dumps(pet_row),'active',1700000000+i,'',0))
+  page.evaluate('async()=>{state.screen="feed";state.filters=baseFilters();await refresh();render()}')
   for layout in ['list','grid']:
    for width in [320,390,430]:
     page.set_viewport_size({'width':width,'height':844});page.evaluate('(layout)=>{state.layout=layout;render()}',layout)

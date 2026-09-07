@@ -105,6 +105,7 @@ with tempfile.TemporaryDirectory(prefix='rent-gallery-', ignore_cleanup_errors=T
             assert page.evaluate('state.filters.district')=='Нубарашен'
             expect(page.locator('.empty')).to_contain_text('Нет подходящих вариантов')
             page.locator('[data-action=reset-filters]').click()
+            expect(page.locator('.listing')).to_have_count(total)
         districts(4,2)
 
         assert page.locator('.listing .photo-tile').count() == 12

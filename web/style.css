@@ -365,3 +365,6 @@ details .details-text { padding:0 15px 17px; }
 .card-photos {position:relative;margin:10px 0}.card-photos .photo-album {margin:0}
 .card-photos>.map-button {position:absolute;right:6px;top:6px;background:var(--surface);border-radius:12px;box-shadow:0 1px 5px #0003}
 .compact-grid .card-photos {margin:0 0 9px}.compact-grid .card-top {margin-top:7px}
+
+#feed-more {padding:16px 0 28px;text-align:center;min-height:1px}
+#feed-more .button {max-width:320px;margin:auto}

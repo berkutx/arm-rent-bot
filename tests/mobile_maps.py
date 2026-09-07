@@ -37,7 +37,7 @@ with tempfile.TemporaryDirectory(prefix='map-mobile-',ignore_cleanup_errors=True
    if url.hostname=='tiles.openfreemap.org':return req.fulfill(status=503 if style_failure else 200,content_type='application/json',body=json.dumps(style))
    if url.hostname!='rent.test':return req.fulfill(content_type='application/javascript',body='')
    headers={k:v for k,v in req.request.headers.items() if k in ('x-telegram-init-data','content-type')}
-   response=client.request(req.request.method,url.path,headers=headers,content=req.request.post_data)
+   response=client.request(req.request.method,url.path+('?' +url.query if url.query else ''),headers=headers,content=req.request.post_data)
    req.fulfill(status=response.status_code,content_type=response.headers.get('content-type','application/json'),body=response.content)
   context.route('**/*',route);page.goto('https://rent.test/');page.locator('.listing').wait_for()
   assert not any('/map' in x or '/assets/' in x or 'openfreemap.org' in x for x in requests)

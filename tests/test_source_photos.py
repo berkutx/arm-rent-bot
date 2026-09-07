@@ -63,3 +63,130 @@ def test_unavailable_source_returns_clear_error(client,monkeypatch):
     monkeypatch.setattr(s.httpx,'AsyncClient',lambda **kw:original(transport=httpx.MockTransport(lambda req:httpx.Response(200,text='Message not found')),**kw))
     response=client.get('/media/'+pid+'.jpg',follow_redirects=False)
     assert response.status_code==502 and 'location' not in response.headers
+
+
+@pytest.fixture
+def source_transport(monkeypatch):
+    monkeypatch.setattr(s,'FILE_PATHS',{})
+    monkeypatch.setattr(s,'SOURCE_PHOTO_REQUESTS',asyncio.Semaphore(4))
+    monkeypatch.setattr(s,'SOURCE_PHOTO_INFLIGHT',{})
+    original=httpx.AsyncClient
+    def install(handler):
+        monkeypatch.setattr(s.httpx,'AsyncClient',lambda **kw:original(transport=httpx.MockTransport(handler),**kw))
+    return install
+
+
+def album_html(source,messages):
+    photos=''.join(f'<a class="tgme_widget_message_photo_wrap" href="{message}?single" style="background-image:url(\'{url}\')"></a>' for message,url in messages.items())
+    return f'<div data-post="{source.removeprefix("https://t.me/")}">{photos}</div>'
+
+
+def test_album_previews_share_one_inflight_request(source_transport):
+    async def run():
+        started=asyncio.Event();release=asyncio.Event();calls=[]
+        messages={SOURCE:CDN,SOURCE[:-3]+'102':CDN.replace('fixture','second'),SOURCE[:-3]+'103':CDN.replace('fixture','third')}
+        async def request(req):
+            calls.append(str(req.url));started.set();await release.wait()
+            return httpx.Response(200,text=album_html(SOURCE,messages))
+        source_transport(request)
+        tasks=[asyncio.create_task(s.source_photo_url({'source_post':SOURCE,'source_message':message})) for message in messages]
+        await asyncio.wait_for(started.wait(),1)
+        await asyncio.sleep(0)
+        assert calls==[SOURCE+'?embed=1']
+        release.set()
+        assert await asyncio.wait_for(asyncio.gather(*tasks),1)==list(messages.values())
+        assert not s.SOURCE_PHOTO_INFLIGHT
+        assert await s.source_photo_url({'source_post':SOURCE,'source_message':SOURCE})==CDN
+        assert len(calls)==1
+    asyncio.run(run())
+
+
+def test_source_request_limit_and_error_release(source_transport):
+    async def run():
+        saturated=asyncio.Event();release=asyncio.Event();calls={};active=0;peak=0
+        async def request(req):
+            nonlocal active,peak
+            source=str(req.url).split('?')[0];calls[source]=calls.get(source,0)+1
+            active+=1;peak=max(peak,active)
+            if active==4:saturated.set()
+            try:
+                await release.wait()
+                if source==SOURCE and calls[source]==1:raise httpx.ConnectError('temporary',request=req)
+                return httpx.Response(200,text=album_html(source,{source:CDN}))
+            finally:active-=1
+        source_transport(request)
+        sources=[SOURCE.rsplit('/',1)[0]+'/'+str(101+i) for i in range(8)]
+        tasks=[asyncio.create_task(s.source_photo_url({'source_post':source,'source_message':source})) for source in sources]
+        await asyncio.wait_for(saturated.wait(),1)
+        await asyncio.sleep(0)
+        assert sum(calls.values())==4 and active==4
+        release.set()
+        results=await asyncio.wait_for(asyncio.gather(*tasks,return_exceptions=True),1)
+        assert isinstance(results[0],s.HTTPException) and results[0].status_code==502
+        assert results[1:]==[CDN]*7
+        assert peak==4 and active==0 and not s.SOURCE_PHOTO_INFLIGHT
+        assert 'source:'+SOURCE not in s.FILE_PATHS
+        assert await s.source_photo_url({'source_post':SOURCE,'source_message':SOURCE})==CDN
+        assert calls[SOURCE]==2
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize('failure',['missing','empty','invalid_utf8','http_error'])
+def test_failed_album_load_is_shared_and_retryable(source_transport,failure):
+    async def run():
+        started=asyncio.Event();release=asyncio.Event();calls=[]
+        async def request(req):
+            calls.append(str(req.url));started.set();await release.wait()
+            if len(calls)>1:return httpx.Response(200,text=album_html(SOURCE,{SOURCE:CDN}))
+            if failure=='missing':return httpx.Response(200,text='Message not found')
+            if failure=='empty':return httpx.Response(200,text=album_html(SOURCE,{}))
+            if failure=='invalid_utf8':return httpx.Response(200,content=b'\xff')
+            return httpx.Response(503)
+        source_transport(request)
+        photo={'source_post':SOURCE,'source_message':SOURCE}
+        tasks=[asyncio.create_task(s.source_photo_url(photo)) for _ in range(3)]
+        await asyncio.wait_for(started.wait(),1)
+        await asyncio.sleep(0)
+        assert len(calls)==1
+        release.set()
+        results=await asyncio.wait_for(asyncio.gather(*tasks,return_exceptions=True),1)
+        assert all(isinstance(result,s.HTTPException) and result.status_code==502 for result in results)
+        assert not s.SOURCE_PHOTO_INFLIGHT and not s.FILE_PATHS
+        assert await s.source_photo_url(photo)==CDN and len(calls)==2
+    asyncio.run(run())
+
+
+def test_cancelled_preview_does_not_cancel_shared_load(source_transport):
+    async def run():
+        started=asyncio.Event();release=asyncio.Event();calls=[]
+        async def request(req):
+            calls.append(str(req.url));started.set();await release.wait()
+            return httpx.Response(200,text=album_html(SOURCE,{SOURCE:CDN}))
+        source_transport(request)
+        photo={'source_post':SOURCE,'source_message':SOURCE}
+        first=asyncio.create_task(s.source_photo_url(photo));second=asyncio.create_task(s.source_photo_url(photo))
+        await asyncio.wait_for(started.wait(),1)
+        first.cancel()
+        with pytest.raises(asyncio.CancelledError):await first
+        release.set()
+        assert await asyncio.wait_for(second,1)==CDN
+        assert len(calls)==1 and not s.SOURCE_PHOTO_INFLIGHT
+    asyncio.run(run())
+
+
+def test_source_album_cache_is_bounded_and_missing_photo_not_cached(source_transport):
+    async def run():
+        calls=[];message=SOURCE.rsplit('/',1)[0]+'/102'
+        def request(req):
+            calls.append(str(req.url))
+            return httpx.Response(200,text=album_html(SOURCE,{message:CDN} if len(calls)==1 else {SOURCE:CDN}))
+        source_transport(request)
+        s.FILE_PATHS.update({str(i):('path',time.monotonic()+3000) for i in range(512)})
+        assert await s.source_photo_url({'source_post':SOURCE,'source_message':message})==CDN
+        assert len(s.FILE_PATHS)==512 and '0' not in s.FILE_PATHS
+        with pytest.raises(s.HTTPException) as error:
+            await s.source_photo_url({'source_post':SOURCE,'source_message':SOURCE})
+        assert error.value.status_code==404 and 'source:'+SOURCE not in s.FILE_PATHS
+        assert await s.source_photo_url({'source_post':SOURCE,'source_message':SOURCE})==CDN
+        assert len(calls)==2 and len(s.FILE_PATHS)==512
+    asyncio.run(run())

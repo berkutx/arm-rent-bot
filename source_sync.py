@@ -1,6 +1,6 @@
 """Telegram source snapshots, durable update queue and compact listing changes."""
 from __future__ import annotations
-import asyncio,contextlib,hashlib,json,logging,os,re,time
+import asyncio,contextlib,hashlib,json,logging,math,os,re,time
 from datetime import datetime,timezone
 from pathlib import Path
 
@@ -370,3 +370,265 @@ class SourceCatalog:
             c.execute("UPDATE listings SET status='active' WHERE status='source_staged'")
             c.execute("INSERT OR REPLACE INTO source_state VALUES('activated','true')")
         self.changed();return {'removed':len(legacy),'activated':staged}
+
+
+class SourceDeletionError(ValueError):
+    """A source check could not establish safe, authoritative deletion evidence."""
+
+
+class SourceDeletionRetryLater(SourceDeletionError):
+    def __init__(self,seconds,request_type=None):
+        super().__init__('Stored Telegram retry deadline has not expired')
+        self.seconds=seconds;self.request_type=request_type
+
+
+def deletion_error_details(error):
+    details={'error':type(error).__name__,'reason':str(error) if isinstance(error,SourceDeletionError) else 'Telegram source check failed'}
+    seconds=getattr(error,'seconds',None)
+    if type(seconds) is int and seconds>=0:details['retry_after']=seconds
+    request=getattr(error,'request',None)
+    for _ in range(8):
+        if type(request).__name__!='InvokeWithoutUpdatesRequest':break
+        request=getattr(request,'query',None)
+    request_type=type(request).__name__ if request is not None else getattr(error,'request_type',None)
+    if isinstance(request_type,str) and re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*',request_type):details['request_type']=request_type
+    return details
+
+
+def deletion_retry_delay(store):
+    health=store.get('deletion_check',{})
+    deadline=health.get('retry_at',0) if isinstance(health,dict) else 0
+    return max(0,math.ceil(deadline-time.time())) if type(deadline) in (int,float) and math.isfinite(deadline) else 0
+
+
+def _record_deletion_flood_wait(store,error):
+    now=time.time()
+    store.set('deletion_check',{'state':'error','at':now,'retry_at':now+error.seconds+1,**deletion_error_details(error)})
+
+
+class _DeletionRPCPacer:
+    def __init__(self,interval=1.0,store=None):
+        if interval<0:raise ValueError('RPC interval must not be negative')
+        self.interval=0 if interval==0 else max(1.0,float(interval));self.completed=None;self.store=store
+
+    async def call(self,operation):
+        from telethon.errors import FloodWaitError
+        for attempt in range(2):
+            if self.completed is not None:
+                delay=self.interval-(time.monotonic()-self.completed)
+                if delay>0:await asyncio.sleep(delay)
+            try:
+                try:return await operation()
+                finally:self.completed=time.monotonic()
+            except FloodWaitError as error:
+                if self.store is not None:_record_deletion_flood_wait(self.store,error)
+                if attempt or not 0<=error.seconds<=60:raise
+                # Retry this request only; a restart must observe the saved deadline.
+                await asyncio.sleep(error.seconds+1)
+
+
+class SourceDeletionChecker:
+    """Inspect only messages already linked to imported listings; never ingest edits."""
+    def __init__(self,catalog,client,entity,request_interval=1.0,requests=None):
+        from telethon import utils
+        self.catalog=catalog;self.store=catalog.store;self.client=client;self.entity=entity
+        self.requests=requests or _DeletionRPCPacer(request_interval,self.store)
+        self.channel=utils.get_peer_id(entity)
+        self.scope=self.store.get('scope')
+        if not self.scope or self.scope.get('channel')!=self.channel:
+            raise SourceDeletionError('Source channel differs from the imported catalog')
+
+    def tracked(self):
+        posts={}
+        with self.store.db() as c:
+            rows=c.execute('SELECT p.post_key,p.lid,p.revision,l.payload FROM source_posts p JOIN listings l ON l.id=p.lid').fetchall()
+        for row in rows:
+            key=row['post_key']
+            if not key.startswith(str(self.channel)+':'):continue
+            payload=json.loads(row['payload']);source=payload.get('_source_post') or {}
+            if payload.get('_source_key')!=key or source.get('chat',{}).get('id')!=self.channel:
+                raise SourceDeletionError('Imported listing source linkage is inconsistent')
+            snapshot=self.store.snapshot(key)
+            if not snapshot['root'] or source.get('message_id')!=snapshot['root']['id']:
+                raise SourceDeletionError('Imported listing root is inconsistent')
+            if not snapshot['messages']:continue
+            posts[key]={'lid':row['lid'],'snapshot':snapshot,'published_revision':row['revision']}
+        return posts
+
+    async def verify_history_access(self,ids):
+        from telethon.tl.functions.channels import GetFullChannelRequest
+        from telethon.tl.types import ChannelFull
+        response=await self.requests.call(lambda:self.client(GetFullChannelRequest(self.entity)))
+        full=getattr(response,'full_chat',None)
+        if not isinstance(full,ChannelFull) or full.id!=self.entity.id:
+            raise SourceDeletionError('Telegram returned full history information for another source')
+        if full.hidden_prehistory:
+            raise SourceDeletionError('Source history before joining is hidden; no changes applied')
+        minimum=full.available_min_id
+        if minimum is not None and (type(minimum) is not int or minimum<0):
+            raise SourceDeletionError('Source history availability is invalid')
+        # Telegram defines available_min_id as the maximum UNAVAILABLE ID, inclusive.
+        if minimum is not None and any(mid<=minimum for mid in ids):
+            raise SourceDeletionError('Tracked source messages are outside accessible history; no changes applied')
+
+    async def fetch_missing(self,ids):
+        from telethon import utils
+        from telethon.tl.types import Message,MessageEmpty
+        messages=await self.requests.call(lambda:self.client.get_messages(self.entity,ids=ids))
+        if not isinstance(messages,(list,tuple)) or len(messages)!=len(ids):
+            raise SourceDeletionError('Incomplete Telegram response')
+        missing=set()
+        for mid,message in zip(ids,messages):
+            if message is None:
+                missing.add(mid);continue
+            if message.id!=mid:raise SourceDeletionError('Telegram message order mismatch')
+            if isinstance(message,MessageEmpty):
+                if message.peer_id is not None and utils.get_peer_id(message.peer_id)!=self.channel:
+                    raise SourceDeletionError('Telegram returned an empty message from another source')
+                missing.add(mid);continue
+            if not isinstance(message,Message) or utils.get_peer_id(message.peer_id)!=self.channel:
+                raise SourceDeletionError('Telegram returned another source or an unexpected message')
+        return missing
+
+    async def check(self,apply=False):
+        posts=self.tracked()
+        ids=sorted({m['id'] for post in posts.values() for m in post['snapshot']['messages']})
+        if ids:await self.verify_history_access(ids)
+        missing=set();live=set()
+        for offset in range(0,len(ids),100):
+            batch=ids[offset:offset+100];absent=await self.fetch_missing(batch)
+            missing.update(absent);live.update(set(batch)-absent)
+        # A lost permission or an empty source must never erase the imported catalog.
+        if ids and not live:raise SourceDeletionError('All tracked Telegram messages are unavailable; no changes applied')
+        confirmed=set()
+        if missing:
+            control=min(live)
+            candidates=sorted(missing)
+            for offset in range(0,len(candidates),99):
+                batch=candidates[offset:offset+99]
+                absent=await self.fetch_missing(batch+[control])
+                if control in absent:raise SourceDeletionError('Known source message became unavailable; no changes applied')
+                confirmed.update(set(batch)&absent)
+        if confirmed:await self.verify_history_access(ids)
+        report={'mode':'apply' if apply else 'dry-run','checked_posts':len(posts),'checked_messages':len(ids),
+                'deleted_messages':len(confirmed),'hidden_listings':0,'updated_albums':0,
+                'unconfirmed_messages':len(missing-confirmed),'deleted_urls':[]}
+        for post in posts.values():
+            gone=[m for m in post['snapshot']['messages'] if m['id'] in confirmed]
+            if not gone:continue
+            # Losing any reviewed caption can invalidate the manually reviewed fields.
+            hide=post['snapshot']['root']['id'] in confirmed or any(m['text'].strip() for m in gone)
+            report['hidden_listings' if hide else 'updated_albums']+=1
+            report['deleted_urls'].extend(f"https://t.me/{m['username']}/{m['id']}" for m in gone)
+        if apply:self.apply(posts,ids,confirmed)
+        return report
+
+    def apply(self,posts,ids,confirmed):
+        now=time.time();changed=False
+        with self.store.db() as c:
+            c.execute('BEGIN IMMEDIATE')
+            scope=c.execute("SELECT value FROM source_state WHERE key='scope'").fetchone()
+            if not scope or json.loads(scope['value'])!=self.scope:raise SourceDeletionError('Source scope changed during the check')
+            for key,post in posts.items():
+                snapshot=post['snapshot']
+                rows=c.execute('SELECT mid,payload,deleted FROM source_messages WHERE post_key=? ORDER BY mid',(key,)).fetchall()
+                if digest([(r['mid'],r['payload'],r['deleted']) for r in rows])!=snapshot['revision']:
+                    raise SourceDeletionError('Source changed during the check; retry required')
+                linked=c.execute('SELECT lid,revision FROM source_posts WHERE post_key=?',(key,)).fetchone()
+                if not linked or linked['lid']!=post['lid'] or linked['revision']!=post['published_revision']:
+                    raise SourceDeletionError('Imported listing changed during the check; retry required')
+                row=c.execute('SELECT * FROM listings WHERE id=?',(post['lid'],)).fetchone()
+                if not row:raise SourceDeletionError('Imported listing disappeared during the check')
+                payload=json.loads(row['payload'])
+                source=payload.get('_source_post') or {}
+                if payload.get('_source_key')!=key or source.get('chat',{}).get('id')!=self.channel or source.get('message_id')!=snapshot['root']['id']:
+                    raise SourceDeletionError('Imported listing source changed during the check')
+                gone=[m for m in snapshot['messages'] if m['id'] in confirmed]
+                if not gone:continue
+                if post['published_revision']!=snapshot['revision']:
+                    raise SourceDeletionError('Source has pending reviewed changes; no deletion applied')
+                for m in gone:
+                    c.execute('UPDATE source_messages SET deleted=1,observed=?,checked=? WHERE channel=? AND mid=?',(now,now,self.channel,m['id']))
+                revision=digest([(r['mid'],r['payload'],1 if r['mid'] in confirmed else r['deleted']) for r in rows])
+                hide=snapshot['root']['id'] in confirmed or any(m['text'].strip() for m in gone)
+                photo_ids={digest([self.channel,m['id'],m['photo']['id']])[:32] for m in gone if m.get('photo')}
+                payload['photos']=[p for p in payload.get('photos',[]) if p['id'] not in photo_ids]
+                payload['photo_count']=len(payload['photos']);payload['source_revision']=revision
+                status=row['status'];reason=row['reason']
+                if hide:
+                    payload.setdefault('_source_previous_status',status);payload['_source_deleted']=True
+                    if status!='banned':status='source_deleted';reason='Пост удалён в Telegram'
+                c.execute('UPDATE listings SET payload=?,status=?,reason=? WHERE id=?',(self.catalog.s.dumps(payload),status,reason,row['id']))
+                if hide:
+                    c.execute("UPDATE source_posts SET revision=?,state='deleted',note='Пост удалён в Telegram',updated=? WHERE post_key=?",(revision,now,key))
+                else:c.execute('UPDATE source_posts SET revision=?,updated=? WHERE post_key=?',(revision,now,key))
+                # Only consume this deletion; unrelated pending import work is untouched.
+                c.execute('DELETE FROM source_dirty WHERE post_key=?',(key,));changed=True
+            for mid in ids:
+                c.execute('UPDATE source_messages SET checked=? WHERE channel=? AND mid=?',(now,self.channel,mid))
+            if changed:c.execute("INSERT OR REPLACE INTO source_state VALUES('catalog_revision',?)",(packed(str(time.time_ns())),))
+        if changed:
+            event=getattr(self.catalog.s,'CATALOG_CHANGED',None)
+            if event:event.set()
+
+
+async def check_source_deletions(catalog,data_dir,apply=False,expected_account_id=None,request_interval=1.0):
+    """One bounded check using the existing server session; no login or new messages."""
+    from telethon import TelegramClient,utils,errors
+    delay=deletion_retry_delay(catalog.store)
+    if delay:raise SourceDeletionRetryLater(delay,catalog.store.get('deletion_check',{}).get('request_type'))
+    if os.getenv('TELEGRAM_SYNC_ENABLED','0')!='0':raise SourceDeletionError('Full Telegram reader must be disabled')
+    source,topics=source_config();scope=catalog.store.get('scope')
+    if not scope or scope.get('topics')!={str(k):v for k,v in topics.items()}:
+        raise SourceDeletionError('Source topic configuration differs from the imported catalog')
+    expected=str(expected_account_id or os.getenv('TELEGRAM_READER_USER_ID',''))
+    if not expected.isdigit() or int(expected)<=0:raise SourceDeletionError('TELEGRAM_READER_USER_ID is required')
+    api_id=os.getenv('TELEGRAM_API_ID','');api_hash=os.getenv('TELEGRAM_API_HASH','')
+    if not api_id.isdigit() or not re.fullmatch('[a-fA-F0-9]{32}',api_hash):raise SourceDeletionError('Telegram reader credentials are missing')
+    data_dir=Path(data_dir);session=data_dir/'telegram-reader.session'
+    if not session.is_file():raise SourceDeletionError('Existing Telegram reader session is required')
+    with reader_lock(data_dir/'telegram-reader.lock'):
+        client=TelegramClient(str(session),int(api_id),api_hash,receive_updates=False,catch_up=False,
+                              entity_cache_limit=128,request_retries=2,connection_retries=3,flood_sleep_threshold=0)
+        client.session.save_entities=False;requests=_DeletionRPCPacer(request_interval,catalog.store)
+        try:
+            await client.connect()
+            if not await requests.call(client.is_user_authorized):raise SourceDeletionError('Telegram reader login is required')
+            account=await requests.call(client.get_me)
+            if not account or account.bot or account.id!=int(expected):raise SourceDeletionError('Unexpected Telegram reader account')
+            # get_entity fetches channel information; do not trust the session's cached username mapping.
+            entity=await requests.call(lambda:client.get_entity(source))
+            if not entity.username or entity.username.lower()!=source.lower() or getattr(entity,'left',True) or getattr(entity,'restricted',False):
+                raise SourceDeletionError('Source membership or access is unavailable')
+            if utils.get_peer_id(entity)!=scope.get('channel'):raise SourceDeletionError('Source channel differs from the imported catalog')
+            checker=SourceDeletionChecker(catalog,client,entity,requests=requests)
+            report=await checker.check(apply=apply)
+            report['account']={'id':account.id,'username':account.username or ''}
+            counts={k:v for k,v in report.items() if isinstance(v,int)}
+            catalog.store.set('deletion_check',{'state':'ok','at':time.time(),**counts})
+            return report
+        except errors.FloodWaitError as error:
+            _record_deletion_flood_wait(catalog.store,error)
+            raise
+        finally:await client.disconnect()
+
+
+async def run_deletion_checks(catalog,data_dir,interval=900):
+    """Check immediately, then on a fixed interval. The full reader stays disabled."""
+    if interval<=0:raise ValueError('Deletion check interval must be positive')
+    while True:
+        waiting=deletion_retry_delay(catalog.store)
+        if waiting:
+            await asyncio.sleep(waiting);continue
+        delay=interval
+        try:
+            report=await check_source_deletions(catalog,data_dir,apply=True)
+            counts={k:v for k,v in report.items() if isinstance(v,int)}
+            catalog.store.set('deletion_check',{'state':'ok','at':time.time(),**counts})
+        except asyncio.CancelledError:raise
+        except SourceDeletionRetryLater as error:delay=error.seconds
+        except Exception as error:
+            delay=max(interval,getattr(error,'seconds',0)+1)
+            catalog.store.set('deletion_check',{'state':'error','at':time.time(),'retry_at':time.time()+delay,**deletion_error_details(error)})
+            log.warning('Source deletion check unavailable (%s)',type(error).__name__)
+        await asyncio.sleep(delay)

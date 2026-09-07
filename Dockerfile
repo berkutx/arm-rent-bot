@@ -11,7 +11,7 @@ COPY server.py source_sync.py ./
 COPY web/index.html web/districts.json ./web/
 COPY web/vendor/*LICENSE ./licenses/
 COPY web/vendor/maplibre-6.7.0/ ./web/vendor/maplibre-6.7.0/
-COPY scripts/backup.py scripts/telegram_login.py scripts/fill_locations.py ./scripts/
+COPY scripts/backup.py scripts/telegram_login.py scripts/fill_locations.py scripts/check_source_deletions.py ./scripts/
 COPY deploy/docker-entrypoint.sh /entrypoint.sh
 USER 10001:10001
 EXPOSE 8000

@@ -793,6 +793,9 @@ details .details-text { padding:0 15px 17px; }
 .card-photos {position:relative;margin:10px 0}.card-photos .photo-album {margin:0}
 .card-photos>.map-button {position:absolute;right:6px;top:6px;background:var(--surface);border-radius:12px;box-shadow:0 1px 5px #0003}
 .compact-grid .card-photos {margin:0 0 9px}.compact-grid .card-top {margin-top:7px}
+
+#feed-more {padding:16px 0 28px;text-align:center;min-height:1px}
+#feed-more .button {max-width:320px;margin:auto}
 </style>
   <script>
   if (/tgWebApp/.test(location.hash + location.search)) {
@@ -939,6 +942,9 @@ let tg = null, sheetKind = '', sheetArg = '', restoreFocus = null, toastTimer;
 let seenDraftPhotos=new Set();
 let photoGallery=null, openingGallery=false, galleryBackPending=false, galleryAfter=null;
 let startHandled = false;
+const FEED_PAGE=12;
+let feedState={key:'',ids:[],total:null,markets:{},districts:{},cities:[],next_cursor:null,loading:false,error:'',ready:false};
+let feedGeneration=0,feedPromise=null,feedController=null,feedObserver=null;
 const uid = () => window.crypto?.randomUUID?.().replaceAll('-','').slice(0,14) || Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 function persist() {
   try {localStorage.setItem(STORE,JSON.stringify({filters:state.filters,sort:state.sort,postMarket:state.postMarket}));} catch {}
@@ -983,8 +989,8 @@ function safePhoto(p) {
   return typeof url === 'string' && (/^data:image\/(jpeg|png|webp);base64,/.test(url) || /^\/media\/[a-f0-9]{32}(?:-thumb)?\.jpg$/.test(url)) ? url : '';
 }
 function filtered() {
-  const records = all().filter(l => displayStatus(l)==='active' && C.matches(l,state.filters));
-  return records.sort((a,b) => state.sort === 'price' ? C.offer(a,state.filters).currency.localeCompare(C.offer(b,state.filters).currency)||C.offer(a,state.filters).period.localeCompare(C.offer(b,state.filters).period)||C.offer(a,state.filters).amount-C.offer(b,state.filters).amount||C.newestFirst(a,b) : C.newestFirst(a,b));
+  const records=new Map(state.remote.map(l=>[l.id,l]));
+  return feedState.ids.map(id=>records.get(id)).filter(l=>l?.status==='active');
 }
 function filterKey(f) { return JSON.stringify(Object.keys(baseFilters()).map(k => [k, f[k] ?? baseFilters()[k]])); }
 function currentSubscription(filters=state.filters) { return state.subs.find(s => filterKey(s.filters) === filterKey(filters)); }
@@ -1007,6 +1013,7 @@ function dock() {
   return '';
 }
 function render() {
+  if(state.screen==='feed'&&feedState.key!==feedKey())resetFeed();
   $('#header').innerHTML = header();
   $('#main').innerHTML = state.screen==='feed' ? feed() : state.screen==='alerts' ? alerts() : state.screen==='review' ? review() : state.screen==='admin' ? admin() : compose();
   $('#dock').innerHTML = dock();
@@ -1015,6 +1022,8 @@ function render() {
   updateBackButton();
   if($('#city-input'))updateAddressCity();
   if (state.error) $('#main').insertAdjacentHTML('afterbegin',`<div class="error-note">${esc(state.error)}</div>`);
+  observeFeed();
+  if(state.screen==='feed'&&!feedState.ready&&!feedState.loading&&!feedState.error)void loadFeed();
 }
 function navigate(screen, push=true) {
   if(screen==='add'&&state.draft&&state.formStep===3)screen='review';
@@ -1024,10 +1033,10 @@ function navigate(screen, push=true) {
   persist(); render(); window.scrollTo(0,0);
 }
 function feed() {
-  const ls=filtered(),f=state.filters,marketCount=all().filter(l=>C.matches(l,{market:f.market})).length,budget=f.max?`До ${money(f.max)} ${sym(f.currency)}`:'Бюджет';
+  const ls=filtered(),f=state.filters,marketCount=feedState.markets[f.market]||0,total=feedState.total,budget=f.max?`До ${money(f.max)} ${sym(f.currency)}`:'Бюджет';
   return `${marketSwitch()}<div class="filters" aria-label="Фильтры поиска"><button class="filter-chip ${f.max||f.currency==='USD'||f.period==='day'?'selected':''}" data-action="budget"><span>${esc(budget)}</span>${icon('down')}</button><button class="filter-chip ${f.rooms!==''||f.kind?'selected':''}" data-action="rooms"><span>${esc(housingFilterLabel(f))}</span>${icon('down')}</button><button class="filter-chip conditions-chip ${f.pets||f.contract||f.residence_registration||f.owner||f.verified?'selected':''}" data-action="conditions-filter" aria-label="Фильтры и уведомления" title="Фильтры">${icon('sliders')}</button></div>
-  <div class="results-heading"><button class="sort-button" data-action="sort">${ls.length} ${plural(ls.length,'вариант','варианта','вариантов')} · ${state.sort==='price'?'дешевле':'новые'} ${icon('down')}</button><div class="catalog-tools">${layoutSwitch()}</div></div>
-  <div class="list ${state.layout==='grid'?'compact-grid':'album-feed'}">${ls.map(card).join('')||(marketCount?empty('Нет подходящих вариантов','Фильтры: '+filterSummary(f)+'.',`Показать все ${marketCount}`,'reset-filters'):empty('Пока нет объявлений',f.market==='paid'?'Добавьте предложение с комиссией или подпишитесь на поиск.':'Добавьте жильё или подпишитесь на поиск.','Сдать жильё','nav','add'))}</div>`;
+  <div class="results-heading"><button class="sort-button" data-action="sort">${total===null?'Объявления':`${total} ${plural(total,'вариант','варианта','вариантов')}`} · ${state.sort==='price'?'дешевле':'новые'} ${icon('down')}</button><div class="catalog-tools">${layoutSwitch()}</div></div>
+  <div class="list ${state.layout==='grid'?'compact-grid':'album-feed'}">${ls.map(card).join('')||(!feedState.ready?'':marketCount?empty('Нет подходящих вариантов','Фильтры: '+filterSummary(f)+'.',`Показать все ${marketCount}`,'reset-filters'):empty('Пока нет объявлений',f.market==='paid'?'Добавьте предложение с комиссией или подпишитесь на поиск.':'Добавьте жильё или подпишитесь на поиск.','Сдать жильё','nav','add'))}</div><div id="feed-more">${feedMoreHTML()}</div>`;
 }
 function plural(n,a,b,c) { return n%10===1&&n%100!==11?a:n%10>=2&&n%10<=4&&(n%100<12||n%100>14)?b:c; }
 function viewsHTML(l) {
@@ -1046,7 +1055,7 @@ async function recordView(l) {
 }
 function marketSwitch(post=false) {
   const market=post?state.postMarket:state.filters.market;
-  return `<div class="market-switch" aria-label="${post?'Условия размещения':'Раздел каталога'}">${[['free','Без комиссии'],['paid',post?'С комиссией · агенты':'С комиссией']].map(([key,label])=>`<button data-action="${post?'post-market':'market'}" data-id="${key}" aria-pressed="${market===key}">${label}${post?'':` <span class="market-count">${all().filter(l=>C.matches(l,{market:key})).length}</span>`}</button>`).join('')}</div>`;
+  return `<div class="market-switch" aria-label="${post?'Условия размещения':'Раздел каталога'}">${[['free','Без комиссии'],['paid',post?'С комиссией · агенты':'С комиссией']].map(([key,label])=>`<button data-action="${post?'post-market':'market'}" data-id="${key}" aria-pressed="${market===key}">${label}${post?'':` <span class="market-count">${feedState.markets[key]??''}</span>`}</button>`).join('')}</div>`;
 }
 function layoutSwitch() {
   return `<div class="layout-switch" aria-label="Вид каталога">${[['list','Лента'],['grid','Сетка']].map(([key,label])=>`<button data-action="layout" data-id="${key}" aria-label="${label}" title="${label}" aria-pressed="${state.layout===key}">${icon(key)}</button>`).join('')}</div>`;
@@ -1063,8 +1072,8 @@ function thumbPhoto(p) {return safePhoto(p?.thumb_url)||safePhoto(p);}
 function albumHTML(l,compact=false) {
   const photos=(l.photos||[]).filter(p=>safePhoto(p)).slice(0,10);
   if(!photos.length)return `<button class="album-empty" data-action="detail" data-id="${esc(l.id)}">${icon('home')}<span>Условия и контакты</span></button>`;
-  const visible=photos.slice(0,compact?1:3);
-  return `<div class="photo-album photos-${visible.length}">${visible.map((p,i)=>`<button class="photo-tile" data-action="gallery" data-id="${esc(l.id)}" data-photo-index="${i}" aria-label="Фото ${i+1} из ${photos.length}: ${esc(l.address)}"><img src="${esc(thumbPhoto(p))}" data-full-src="${esc(safePhoto(p))}" alt="Фото жилья ${i+1}" loading="lazy" decoding="async"><span class="photo-missing">Фото не загрузилось</span>${i===0?`<span class="album-count">${photos.length} фото ${icon('photo')}</span>`:i===2&&photos.length>3?`<span class="album-count">+${photos.length-3}</span>`:''}</button>`).join('')}</div>`;
+  const visible=photos.slice(0,compact?1:3),count=l.photo_count||photos.length;
+  return `<div class="photo-album photos-${visible.length}">${visible.map((p,i)=>`<button class="photo-tile" data-action="gallery" data-id="${esc(l.id)}" data-photo-index="${i}" aria-label="Фото ${i+1} из ${count}: ${esc(l.address)}"><img src="${esc(thumbPhoto(p))}" data-full-src="${esc(safePhoto(p))}" alt="Фото жилья ${i+1}" loading="lazy" decoding="async"><span class="photo-missing">Фото не загрузилось</span>${i===0?`<span class="album-count">${count} фото ${icon('photo')}</span>`:i===2&&count>3?`<span class="album-count">+${count-3}</span>`:''}</button>`).join('')}</div>`;
 }
 function card(l) {
   const hint=l.residence_registration==='yes'?'Регистрация возможна':'';
@@ -1139,6 +1148,7 @@ function clearSheet(focus=true) {
   $('#modal-root').innerHTML=''; sheetKind=''; sheetArg='';
   $('#app').inert=false; document.body.style.overflow=''; updateBackButton();
   if (focus && restoreFocus?.isConnected) restoreFocus.focus({preventScroll:true});
+  observeFeed();
 }
 function closeSheet() {
   clearSheet();
@@ -1171,9 +1181,8 @@ function budgetSheet(edit=false) {
 function districtSheet() {
   const current=state.filters.district,city=state.filters.city;
   const row=(value,label,count)=>`<button class="choice-row district-choice ${!value?'all-districts':''} ${current===value?'active':''}" data-action="select-district" data-id="${esc(value)}"><span class="district-name">${esc(label)}</span><span class="district-count">${count}${current===value?icon('check'):''}</span></button>`;
-  const cities=[...new Set([...C.CITIES,...all().map(l=>l.city)])].filter(Boolean);
-  const records=all().filter(l=>C.matches(l,{...state.filters,city:'Ереван',district:''}));
-  showSheet('Город и район',`<div class="stack"><div><label for="filter-city">Город</label><select id="filter-city">${selectOptions([['','Все города'],...cities.map(c=>[c,c])],city)}</select></div>${city==='Ереван'?`<div class="district-choices">${row('','Все районы Еревана',records.length)}${C.DISTRICTS.map(d=>row(d.name,d.name,records.filter(l=>l.district===d.name).length)).join('')}</div>`:''}</div>`,'','district');
+  const cities=[...new Set([...C.CITIES,...feedState.cities])].filter(Boolean);
+  showSheet('Город и район',`<div class="stack"><div><label for="filter-city">Город</label><select id="filter-city">${selectOptions([['','Все города'],...cities.map(c=>[c,c])],city)}</select></div>${city==='Ереван'?`<div class="district-choices">${row('','Все районы Еревана',feedState.ready?(feedState.district_total??0):'…')}${C.DISTRICTS.map(d=>row(d.name,d.name,feedState.ready?(feedState.districts[d.name]??0):'…')).join('')}</div>`:''}</div>`,'','district');
 }
 const roomChoices=[['','Любое жильё'],['room','Комната'],['0','Студия'],['1','1 комната'],['2','2 комнаты'],['3','3 комнаты'],['4+','4 и больше'],['house','Дом'],['aparthotel','Апарт-отель']];
 function roomsSheet(edit=false) {
@@ -1313,27 +1322,86 @@ function banSheet(id) {
   const l=item(id);if(!l)return;
   showSheet('Блокировка объявления',`<form id="ban-form" data-listing="${esc(id)}" class="stack"><p>${esc(l.city)} · ${esc(l.address)}</p><div><label for="ban-reason">Причина — её увидит автор</label><textarea id="ban-reason" name="reason" minlength="3" maxlength="500" required placeholder="Например: в объявлении указана комиссия"></textarea></div><p class="note">Объявление исчезнет из ленты. Автор увидит его в «Моих» со статусом и причиной блокировки.</p></form>`,`<button class="button" type="submit" form="ban-form">Заблокировать</button>`,'ban',id);
 }
-async function api(path,method='GET',body) {
+async function api(path,method='GET',body,signal) {
   const headers={}; if (tg?.initData) headers['X-Telegram-Init-Data']=tg.initData;
   if (body && !(body instanceof FormData)) headers['Content-Type']='application/json';
-  const controller=new AbortController(), timer=setTimeout(()=>controller.abort(),20000);
+  const controller=new AbortController(), timer=setTimeout(()=>controller.abort(),20000),cancel=()=>controller.abort();
+  if(signal?.aborted)cancel();else signal?.addEventListener('abort',cancel,{once:true});
   try {
     const r=await fetch(path,{method,headers,body:body?(body instanceof FormData?body:JSON.stringify(body)):undefined,signal:controller.signal});
-    const data=await r.json(); if (!r.ok) throw Error(typeof data.detail==='string'?data.detail:'Проверьте данные и повторите.');
+    const data=await r.json(); if (!r.ok) {const error=Error(typeof data.detail==='string'?data.detail:'Проверьте данные и повторите.');error.status=r.status;throw error;}
     return data;
   } catch(e) { if(e.name==='AbortError') throw Error('Нет ответа сервера. Попробуйте ещё раз.'); throw e; }
-  finally { clearTimeout(timer); }
+  finally { clearTimeout(timer);signal?.removeEventListener('abort',cancel); }
 }
 function requireUser() {
   if (state.user) return true;
   toast('Откройте приложение через своего Telegram-бота.'); return false;
 }
-async function refresh() {
-  const [ls, own, subscriptions]=await Promise.all([
-    api('/api/listings'), state.user?api('/api/mine'):Promise.resolve([]),
-    state.user?api('/api/subscriptions'):Promise.resolve([])
-  ]);
-  state.remote=ls; state.own=own; state.subs=subscriptions;
+function feedKey(){return filterKey(state.filters)+'|'+state.sort;}
+function resetFeed(){
+  feedController?.abort();feedGeneration++;feedPromise=null;
+  feedState={...feedState,key:feedKey(),ids:[],total:null,districts:{},district_total:null,next_cursor:null,loading:false,error:'',ready:false};
+  state.remote=[];
+}
+function feedMoreHTML(){
+  if(feedState.error)return `<p class="note" role="status">${esc(feedState.error)}</p><button class="button secondary" data-action="more-feed">Повторить загрузку</button>`;
+  if(feedState.loading||!feedState.ready)return '<p class="note" role="status">Загружаем объявления…</p>';
+  return feedState.next_cursor?'<button class="button secondary" data-action="more-feed">Показать ещё</button>':'';
+}
+function observeFeed(){
+  feedObserver?.disconnect();
+  const target=$('#feed-more');if(!target||!feedState.next_cursor||feedState.loading||feedState.error||sheetKind||photoGallery)return;
+  feedObserver=new IntersectionObserver(entries=>{if(entries.some(e=>e.isIntersecting))void loadFeed(true);},{rootMargin:'450px'});
+  feedObserver.observe(target);
+}
+function feedAnchor(){const el=[...document.querySelectorAll('.listing')].find(x=>x.getBoundingClientRect().bottom>100);return el?{id:el.dataset.listing,top:el.getBoundingClientRect().top}:null;}
+function restoreFeedAnchor(anchor){if(!anchor)return;const el=[...document.querySelectorAll('.listing')].find(x=>x.dataset.listing===anchor.id);if(el)window.scrollBy(0,el.getBoundingClientRect().top-anchor.top);}
+async function loadFeed(more=false,preserve=false){
+  if(feedState.loading)return feedPromise;
+  if(more&&!feedState.next_cursor&&feedState.ready)return;
+  const generation=feedGeneration,key=feedState.key,anchor=preserve?feedAnchor():null;
+  const target=preserve?Math.max(FEED_PAGE,feedState.ids.length):FEED_PAGE;
+  feedState.loading=true;feedState.error='';feedController=new AbortController();
+  const signal=feedController.signal;
+  if($('#feed-more'))$('#feed-more').innerHTML=feedMoreHTML();feedObserver?.disconnect();
+  feedPromise=(async()=>{
+    try{
+      let cursor=more?feedState.next_cursor:null,rows=[],page;
+      do{
+        const query=new URLSearchParams({filters:JSON.stringify(state.filters),sort:state.sort,limit:String(Math.min(48,target-rows.length))});
+        if(cursor)query.set('cursor',cursor);
+        page=await api('/api/feed?'+query,'GET',undefined,signal);
+        if(generation!==feedGeneration||key!==feedKey())return;
+        rows.push(...page.listings);cursor=page.next_cursor;
+      }while(preserve&&cursor&&rows.length<target);
+      const existing=new Set(more?feedState.ids:[]),added=rows.filter(l=>!existing.has(l.id));
+      const previous=new Map(state.remote.map(l=>[l.id,l]));
+      state.remote=more?[...state.remote,...added]:rows.map(l=>({...previous.get(l.id),...l}));
+      Object.assign(feedState,page,{ids:more?[...feedState.ids,...added.map(l=>l.id)]:rows.map(l=>l.id),loading:false,ready:true});
+      if(sheetKind==='district')districtSheet();
+      if(state.screen==='feed'){
+        if(more&&$('#main .list')){$('#main .list').insertAdjacentHTML('beforeend',added.map(card).join(''));$('#feed-more').innerHTML=feedMoreHTML();observeFeed();}
+        else {render();restoreFeedAnchor(anchor);}
+      }
+    }catch(e){
+      if(generation!==feedGeneration||signal.aborted)return;
+      if(e.status===409){resetFeed();if(state.screen==='feed')render();return;}
+      feedState.error=e.message;
+    }finally{
+      if(generation===feedGeneration){feedState.loading=false;feedPromise=null;if($('#feed-more'))$('#feed-more').innerHTML=feedMoreHTML();observeFeed();}
+    }
+  })();
+  return feedPromise;
+}
+async function refreshPersonal(){
+  if(!state.user)return;
+  [state.own,state.subs]=await Promise.all([api('/api/mine'),api('/api/subscriptions')]);
+}
+async function refresh(){
+  if(feedState.key!==feedKey())resetFeed();
+  else if(feedState.loading)await feedPromise;
+  await Promise.all([loadFeed(false,true),refreshPersonal()]);
 }
 
 async function follow() {
@@ -1475,6 +1543,7 @@ function safeOpen(url) {
 }
 async function action(a,id,el) {
   captureStep();
+  if(a==='more-feed')return loadFeed(!!feedState.ready);
   if(a==='choose-kind'){if(state.draft.kind===id)return;state.draft.kind=id;state.draft.rooms=null;render();return;}
   if(a==='choose-rooms'){state.draft.rooms=Number(id);render();return;}
   if(a==='agent-profile')return agentProfileSheet();
@@ -1673,7 +1742,7 @@ async function startRoute() {
 }
 let catalogEvents=null,catalogRevision=null,catalogTimer=null;
 function connectCatalogEvents(){
-  if(!state.sourceEnabled||document.hidden){catalogEvents?.close();catalogEvents=null;return;}
+  if(!state.catalogEventsEnabled||document.hidden){catalogEvents?.close();catalogEvents=null;return;}
   if(catalogEvents)return;
   catalogEvents=new EventSource('/api/catalog-events');
   catalogEvents.onmessage=event=>{
@@ -1691,10 +1760,12 @@ let connecting=false;
 async function connect() {
   if(connecting)return;connecting=true;
   try {
-    const config=await api('/api/config');state.bot=config.bot_username;state.sourceEnabled=!!config.source_enabled;state.mapsEnabled=!!config.maps_enabled;connectCatalogEvents();
-    state.channelConfigured=!!config.channel_configured;state.paidChannelConfigured=!!config.paid_channel_configured;
-    if(tg?.initData)state.user=await api('/api/me');
-    await refresh();render();await startRoute();
+    const configWork=api('/api/config').then(config=>{
+      state.bot=config.bot_username;state.sourceEnabled=!!config.source_enabled;state.catalogEventsEnabled=!!(config.source_enabled||config.deletion_checks_enabled);state.mapsEnabled=!!config.maps_enabled;
+      state.channelConfigured=!!config.channel_configured;state.paidChannelConfigured=!!config.paid_channel_configured;connectCatalogEvents();render();
+    });
+    const userWork=tg?.initData?api('/api/me').then(user=>{state.user=user;return refreshPersonal();}):Promise.resolve();
+    await Promise.all([configWork,userWork,feedPromise]);render();await startRoute();
   } finally {connecting=false;}
 }
 (async()=>{
@@ -1711,12 +1782,12 @@ async function refreshVisible() {
   if(document.hidden || !state.booted || refreshPending) return;
   refreshPending=true;
   try {
-    const openId=photoGallery?.rentListingId||(['detail','map'].includes(sheetKind)?sheetArg:''),before=openId?item(openId):null;
+    const openId=photoGallery?.rentListingId||(['detail','map','contact'].includes(sheetKind)?sheetArg:''),before=openId?item(openId):null;
     await refresh();state.error='';
-    if(before?.source_revision){
-      const after=state.remote.find(l=>l.id===openId);
-      if(!after||after.source_revision!==before.source_revision){
-        const show=()=>{if(after)void detail(openId);else {closeSheet();toast('Объявление снято с публикации.');}};
+    if(before){
+      let after=null;try{after=await api('/api/listings/'+encodeURIComponent(openId));const old=state.remote.find(l=>l.id===openId);if(old)Object.assign(old,after);else state.remote.push(after);}catch(e){if(e.status!==404)throw e;}
+      if(!after||after.status!==before.status||after.source_revision!==before.source_revision){
+        const show=()=>{if(after)void (sheetKind==='contact'?contactSheet(openId):detail(openId));else {closeSheet();toast('Объявление снято с публикации.');}};
         if(photoGallery){galleryAfter=show;closeGallery();}else show();
       }
     }
@@ -1742,7 +1813,7 @@ async function refreshVisible() {
     refreshPending=false;
   }
 }
-setInterval(refreshVisible,30000);
+
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshVisible();});
 
 function rentalDate(value) {

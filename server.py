@@ -1,6 +1,6 @@
 """Telegram Mini App. One process; network writes require LIVE=1."""
 from __future__ import annotations
-import asyncio, contextlib, hashlib, hmac, json, logging, os, re, secrets, sqlite3, time
+import asyncio, base64, binascii, contextlib, hashlib, hmac, json, logging, os, re, secrets, sqlite3, time
 from contextlib import asynccontextmanager
 from html.parser import HTMLParser
 from datetime import datetime, timezone, timedelta
@@ -8,12 +8,12 @@ from pathlib import Path
 from typing import Literal
 from urllib.parse import parse_qsl
 import httpx
-from source_sync import SourceStore,SourceCatalog,run_reader
+from source_sync import SourceStore,SourceCatalog,run_reader,run_deletion_checks
 from cryptography.fernet import Fernet
-from fastapi import FastAPI, Depends, HTTPException, Request
+from fastapi import FastAPI, Depends, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse, RedirectResponse, FileResponse
-from pydantic import BaseModel, Field, ConfigDict, model_validator
+from pydantic import BaseModel, Field, ConfigDict, ValidationError, model_validator
 
 ROOT=Path(__file__).resolve().parent
 # Read a local .env without an additional dependency. Never include this file in source control.
@@ -66,6 +66,7 @@ def setup():
         CREATE TABLE IF NOT EXISTS users(uid INTEGER PRIMARY KEY, username TEXT, name TEXT, started INTEGER DEFAULT 0);
         CREATE TABLE IF NOT EXISTS listings(id TEXT PRIMARY KEY, uid INTEGER, payload TEXT, status TEXT, created REAL, confirmed REAL, fingerprint TEXT, private BLOB, private_expires REAL, reason TEXT, channel_message INTEGER, channel_kind TEXT, reminded REAL DEFAULT 0, UNIQUE(uid,fingerprint));
         CREATE INDEX IF NOT EXISTS listings_author ON listings(uid,status,created);
+        CREATE INDEX IF NOT EXISTS listings_feed ON listings(status,created DESC,id DESC);
         CREATE TABLE IF NOT EXISTS photos(id TEXT PRIMARY KEY, uid INTEGER, sha TEXT, tg_file_id TEXT, created REAL, sizes TEXT);
         CREATE TABLE IF NOT EXISTS subscriptions(id TEXT PRIMARY KEY,uid INTEGER,name TEXT,filters TEXT,frequency TEXT,active INTEGER,created REAL,last_digest TEXT);
         CREATE TABLE IF NOT EXISTS deliveries(uid INTEGER,lid TEXT,PRIMARY KEY(uid,lid));
@@ -244,6 +245,8 @@ class Filters(BaseModel):
     contract:bool=False
     residence_registration:bool=False
     verified:bool=False
+class FeedFilters(Filters):
+    model_config=ConfigDict(extra='forbid',strict=True)
 class SubscriptionIn(BaseModel):
     name:str=Field(min_length=1,max_length=80)
     frequency:Literal['instant','daily']='instant'
@@ -291,6 +294,9 @@ def listing(r,mine=False):
     # Explicit public projection: never merge the private ciphertext, credentials, uid or fingerprint.
     return d
 
+def selected_offer(l,f):
+    return next((p for p in l['prices'] if (not f.get('period') or p['period']==f['period']) and (not f.get('currency') or p['currency']==f['currency']) and (not f.get('residence_registration') or p.get('registration')!='no') and (not f.get('pets') or (p.get('pets') if p.get('pets') in ('yes','no') else l.get('pets')) in ('yes','ask'))),None)
+
 def matches(l,f):
     if l.get('status')!='active':return False
     for key in ['city','district','kind']:
@@ -305,9 +311,9 @@ def matches(l,f):
     if f.get('contract') and l.get('contract')!='yes':return False
     if f.get('residence_registration') and l.get('residence_registration') not in ('yes','ask'):return False
     if f.get('verified') and l.get('document_status') not in ('owner_verified','representative_verified'):return False
-    offers=[p for p in l['prices'] if (not f.get('period') or p['period']==f['period']) and (not f.get('currency') or p['currency']==f['currency']) and (not f.get('residence_registration') or p.get('registration')!='no') and (not f.get('pets') or (p.get('pets') if p.get('pets') in ('yes','no') else l.get('pets')) in ('yes','ask'))]
-    if not offers:return False
-    if f.get('max') and offers[0]['amount']>int(f['max']):return False
+    offer=selected_offer(l,f)
+    if not offer:return False
+    if f.get('max') and offer['amount']>int(f['max']):return False
     if f.get('q') and norm(f['q']) not in norm(' '.join(l.get(k,'') or '' for k in ['address','city','district','description'])):return False
     return True
 
@@ -319,6 +325,9 @@ def active_effects(lid):
     for s in subs:
         if matches(l,json.loads(s['filters'])):enqueue('match',{'uid':s['uid'],'id':lid},f"match:{s['uid']}:{lid}")
 
+def deletion_check_interval():
+    return max(0,int(os.getenv('TELEGRAM_DELETION_CHECK_INTERVAL','0')))
+
 @asynccontextmanager
 async def lifespan(app):
     setup()
@@ -329,6 +338,8 @@ async def lifespan(app):
         tasks=[asyncio.create_task(poll()),asyncio.create_task(worker())]
         if os.getenv('TELEGRAM_SYNC_ENABLED','0')=='1':
             tasks.extend([asyncio.create_task(source_reader_loop()),asyncio.create_task(source_worker())])
+        elif deletion_check_interval():
+            tasks.append(asyncio.create_task(run_deletion_checks(SOURCE_CATALOG,DATA,interval=deletion_check_interval())))
     try:yield
     finally:
         for t in tasks:t.cancel()
@@ -355,7 +366,7 @@ async def index():
     s=(ROOT/'web/index.html').read_text(encoding='utf-8')
     return HTMLResponse(s)
 @app.get('/api/config')
-async def config():return {'live':LIVE,'bot_username':BOT if LIVE else '', 'version':'0.5.0','channel_configured':bool(LIVE and CHAT),'paid_channel_configured':bool(LIVE and PAID_CHAT),'source_enabled':os.getenv('TELEGRAM_SYNC_ENABLED','0')=='1','maps_enabled':bool(GEOCODER_URL)}
+async def config():return {'live':LIVE,'bot_username':BOT if LIVE else '', 'version':'0.5.0','channel_configured':bool(LIVE and CHAT),'paid_channel_configured':bool(LIVE and PAID_CHAT),'source_enabled':os.getenv('TELEGRAM_SYNC_ENABLED','0')=='1','deletion_checks_enabled':bool(LIVE and deletion_check_interval()),'maps_enabled':bool(GEOCODER_URL)}
 
 @app.get('/assets/maplibre-6.7.0/{filename}')
 async def map_asset(filename:str):
@@ -484,6 +495,76 @@ async def admin_agent_profile(lid:str,u=Depends(admin_user)):
 async def listings():
     with db() as c:rs=c.execute("SELECT * FROM listings WHERE status='active' ORDER BY created DESC LIMIT 500").fetchall()
     return [listing(r) for r in rs]
+FEED_FIELDS=('id','status','created_at','is_mine','city','district','address','kind','subtype','rooms','area',
+    'prices','pets','role','commission','commission_max','commission_type','commission_currency','commission_basis',
+    'available','available_until','residence_registration','contract','document_status',
+    'metro_walk_minutes','center_drive_minutes','view_count')
+
+def feed_card(d):
+    card={key:d[key] for key in FEED_FIELDS if key in d}
+    photos=d.get('photos') or []
+    card.update(photos=photos[:3],photo_count=len(photos))
+    return card
+
+def feed_cursor(revision,query,offset):
+    raw=dumps([1,revision,query,offset]).encode()
+    encoded=base64.urlsafe_b64encode(raw).decode().rstrip('=')
+    return encoded+'.'+hmac.new(VIEW_SECRET,b'feed-cursor:'+raw,hashlib.sha256).hexdigest()
+
+def feed_offset(cursor,revision,query):
+    if not cursor:return 0
+    try:
+        if not re.fullmatch(r'[A-Za-z0-9_-]+\.[a-f0-9]{64}',cursor):raise ValueError()
+        encoded,signature=cursor.split('.')
+        raw=base64.b64decode(encoded+'='*(-len(encoded)%4),altchars=b'-_',validate=True)
+        expected=hmac.new(VIEW_SECRET,b'feed-cursor:'+raw,hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(signature,expected):raise ValueError()
+        value=json.loads(raw)
+        if not isinstance(value,list) or len(value)!=4 or type(value[0]) is not int or value[0]!=1:raise ValueError()
+        if any(not isinstance(v,str) or not re.fullmatch(r'[a-f0-9]{64}',v) for v in value[1:3]):raise ValueError()
+        if type(value[3]) is not int or value[3]<1:raise ValueError()
+    except (ValueError,binascii.Error,UnicodeError):
+        raise HTTPException(422,'Некорректная страница каталога') from None
+    if value[1]!=revision or value[2]!=query:
+        raise HTTPException(409,'Каталог изменился. Обновите ленту.')
+    return value[3]
+
+@app.get('/api/feed')
+async def feed(filters:str=Query(default='{}',max_length=4096),sort:Literal['new','price']='new',
+               limit:int=Query(default=12,ge=1,le=48),cursor:str|None=Query(default=None,max_length=512)):
+    try:f=FeedFilters.model_validate_json(filters).model_dump()
+    except ValidationError:raise HTTPException(422,'Проверьте фильтры каталога') from None
+    # Filter and facet the complete catalog in one read; no photo queries or network calls.
+    with db() as c:
+        rows=c.execute("SELECT id,uid,payload,status,created,phone_key,view_count FROM listings WHERE status='active' ORDER BY created DESC,id DESC").fetchall()
+    digest=hashlib.sha256()
+    for row in rows:
+        # Views change independently of catalog contents and must not invalidate scrolling.
+        digest.update(dumps([row[key] for key in ('id','uid','payload','status','created','phone_key')]).encode())
+        digest.update(b'\n')
+    revision=digest.hexdigest()
+    query=hashlib.sha256(dumps([f,sort]).encode()).hexdigest()
+    offset=feed_offset(cursor,revision,query)
+    records=[listing(row) for row in rows]
+    matched=[d for d in records if matches(d,f)]
+    if sort=='price':
+        def price_key(d):
+            offer=selected_offer(d,f)
+            return offer['currency'],offer['period'],offer['amount']
+        # Python's stable sort keeps created DESC,id DESC for equal selected prices.
+        matched.sort(key=price_key)
+    if offset>len(matched):raise HTTPException(422,'Некорректная страница каталога')
+    district_records=[d for d in records if matches(d,{**f,'city':'Ереван','district':''})]
+    districts={}
+    for d in district_records:
+        if d.get('district'):districts[d['district']]=districts.get(d['district'],0)+1
+    end=offset+limit
+    return {'listings':[feed_card(d) for d in matched[offset:end]],'total':len(matched),
+        'next_cursor':feed_cursor(revision,query,end) if end<len(matched) else None,
+        'markets':{market:sum(matches(d,{'market':market}) for d in records) for market in ('free','paid')},
+        'districts':districts,'district_total':len(district_records),
+        'cities':sorted({d['city'] for d in records if d.get('city')})}
+
 @app.get('/api/listings/{lid}')
 async def public_listing(lid:str):
     r=getrow(lid)
@@ -632,6 +713,28 @@ class TelegramAlbum(HTMLParser):
         match=re.search(r"background-image:url\(['\"]([^'\"]+)['\"]\)",attrs.get('style',''))
         if match and public_photo_url(match[1]):self.photos[attrs.get('href','').split('?')[0]]=match[1]
 
+SOURCE_PHOTO_REQUESTS=asyncio.Semaphore(4)
+SOURCE_PHOTO_INFLIGHT={}
+
+async def load_source_album(source):
+    try:
+        async with SOURCE_PHOTO_REQUESTS:
+            try:
+                async with httpx.AsyncClient(timeout=20) as client:
+                    async with client.stream('GET',source+'?embed=1') as response:
+                        response.raise_for_status();raw=bytearray()
+                        async for chunk in response.aiter_bytes():
+                            raw.extend(chunk)
+                            if len(raw)>1_000_000:raise ValueError()
+                album=TelegramAlbum();album.feed(raw.decode('utf-8'))
+                if source.removeprefix('https://t.me/') not in album.posts or not album.photos:raise ValueError()
+            except (httpx.HTTPError,ValueError):raise HTTPException(502,'Фото временно недоступно') from None
+        if len(FILE_PATHS)>=512:FILE_PATHS.pop(next(iter(FILE_PATHS)))
+        FILE_PATHS['source:'+source]=(album.photos,time.monotonic()+3000)
+        return album.photos
+    finally:
+        SOURCE_PHOTO_INFLIGHT.pop(source,None)
+
 async def source_photo_url(photo):
     source=photo.get('source_post','');message=photo.get('source_message','')
     if not re.fullmatch(r'https://t.me/[A-Za-z0-9_]{5,32}/[1-9][0-9]*',source):raise HTTPException(404)
@@ -639,20 +742,16 @@ async def source_photo_url(photo):
     key='source:'+source;cached=FILE_PATHS.get(key)
     if cached and cached[1]>time.monotonic():photos=cached[0]
     else:
-        try:
-            async with httpx.AsyncClient(timeout=20) as client:
-                async with client.stream('GET',source+'?embed=1') as response:
-                    response.raise_for_status();raw=bytearray()
-                    async for chunk in response.aiter_bytes():
-                        raw.extend(chunk)
-                        if len(raw)>1_000_000:raise ValueError()
-            album=TelegramAlbum();album.feed(raw.decode('utf-8'))
-            if source.removeprefix('https://t.me/') not in album.posts:raise ValueError()
-            photos=album.photos
-        except (httpx.HTTPError,ValueError):raise HTTPException(502,'Фото временно недоступно') from None
-        if len(FILE_PATHS)>=512:FILE_PATHS.pop(next(iter(FILE_PATHS)))
-        FILE_PATHS[key]=(photos,time.monotonic()+3000)
-    if message not in photos:raise HTTPException(404,'Фото отсутствует в исходном посте')
+        task=SOURCE_PHOTO_INFLIGHT.get(source)
+        if task is None:
+            task=asyncio.create_task(load_source_album(source))
+            SOURCE_PHOTO_INFLIGHT[source]=task
+            # Consume errors even if every request awaiting this shared load disconnects.
+            task.add_done_callback(lambda done:None if done.cancelled() else done.exception())
+        photos=await asyncio.shield(task)
+    if message not in photos:
+        FILE_PATHS.pop(key,None)
+        raise HTTPException(404,'Фото отсутствует в исходном посте')
     return photos[message]
 
 @app.get('/media/{filename}')
@@ -840,7 +939,7 @@ async def source_status(u=Depends(admin_user)):
         staged=c.execute("SELECT COUNT(*) FROM listings WHERE status='source_staged'").fetchone()[0]
     return {'enabled':os.getenv('TELEGRAM_SYNC_ENABLED','0')=='1','connection':SOURCE_STORE.get('connection',{'state':'disabled'}),
             'history_complete':SOURCE_STORE.get('history_complete',False),'activated':SOURCE_STORE.get('activated',False),
-            'history_checked':SOURCE_STORE.get('history_checked'),'reconciled_at':SOURCE_STORE.get('reconciled_at'),'counts':counts,'staged':staged}
+            'deletion_check':SOURCE_STORE.get('deletion_check'),'history_checked':SOURCE_STORE.get('history_checked'),'reconciled_at':SOURCE_STORE.get('reconciled_at'),'counts':counts,'staged':staged}
 
 @app.get('/api/admin/source/posts')
 async def source_posts(u=Depends(admin_user)):
